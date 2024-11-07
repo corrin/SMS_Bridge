@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.10.34928.147
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SMS_Bridge", "SMS_Bridge.csproj", "{45834545-3440-48E1-A0A4-8556C5C64487}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{45834545-3440-48E1-A0A4-8556C5C64487}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{45834545-3440-48E1-A0A4-8556C5C64487}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{45834545-3440-48E1-A0A4-8556C5C64487}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{45834545-3440-48E1-A0A4-8556C5C64487}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {D91AAE55-549D-41AB-9A6F-B08116AC9C6F}
+	EndGlobalSection
+EndGlobal
