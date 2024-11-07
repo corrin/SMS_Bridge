@@ -8,4 +8,11 @@
     <PublishAot>true</PublishAot>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Reference Include="RemotePhoneService">
+      <HintPath>..\..\..\..\..\Program Files (x86)\JustPhone\CallCenter\SDK\bin\RemotePhoneService.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+  </ItemGroup>
+
 </Project>
