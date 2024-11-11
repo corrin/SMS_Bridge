@@ -5,7 +5,7 @@
       "commandName": "Project",
       "dotnetRunMessages": true,
       "launchBrowser": true,
-      "launchUrl": "api/smsgateway/gateway-status",
+      "launchUrl": "smsgateway/gateway-status",
       "applicationUrl": "http://localhost:5170",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"

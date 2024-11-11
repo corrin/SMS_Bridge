@@ -9,6 +9,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>..\..\..\..\..\Program Files (x86)\Open Dental\Newtonsoft.Json.dll</HintPath>
+    </Reference>
     <Reference Include="RemotePhoneService">
       <HintPath>..\..\..\..\..\Program Files (x86)\JustPhone\CallCenter\SDK\bin\RemotePhoneService.dll</HintPath>
       <Private>True</Private>
