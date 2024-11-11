@@ -27,5 +27,31 @@ namespace SMS_Bridge.SmsProviders
 
             return Task.FromResult(MessageStatus.Failed);  // Stub - not implemented yet
         }
+
+        public Task<IEnumerable<ReceiveSmsRequest>> GetReceivedMessages()
+        {
+            Logger.LogWarning(
+                provider: "eTXT",
+                eventType: "NotImplemented",
+                messageID: "",
+                details: "Receive Messages attempted but eTXT provider is not implemented"
+            );
+            return Task.FromResult(Enumerable.Empty<ReceiveSmsRequest>());
+        }
+        public Task<DeleteMessageResponse> DeleteReceivedMessage(Guid messageId)
+        {
+            Logger.LogWarning(
+                provider: "eTXT",
+                eventType: "NotImplemented",
+                messageID: "",
+                details: "Delete Message attempted but eTXT provider is not implemented"
+            );
+            return Task.FromResult(new DeleteMessageResponse(
+                MessageID: messageId.ToString(),
+                Deleted: false,
+                DeleteFeedback: "Delete operation not implemented for eTXT provider"
+            ));
+        }
+
     }
 }

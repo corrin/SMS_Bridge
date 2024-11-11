@@ -15,7 +15,8 @@ namespace SMS_Bridge
     [JsonSerializable(typeof(ApiResponse<IResult>))]
     [JsonSerializable(typeof((IResult Result, Guid MessageId)))]
     [JsonSerializable(typeof(MessageStatusResponse))]
-    [JsonSerializable(typeof(CheckSendSmsResponse))] 
+    [JsonSerializable(typeof(CheckSendSmsResponse))]
+    [JsonSerializable(typeof(BulkSmsResponse))] 
 
     internal partial class AppJsonSerializerContext : JsonSerializerContext
     {

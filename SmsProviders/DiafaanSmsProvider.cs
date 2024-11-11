@@ -26,5 +26,32 @@ namespace SMS_Bridge.SmsProviders
             );
             return Task.FromResult(MessageStatus.Failed);
         }
+
+        public Task<IEnumerable<ReceiveSmsRequest>> GetReceivedMessages()
+        {
+            Logger.LogWarning(
+                provider: "Diafaan",
+                eventType: "NotImplemented",
+                messageID: "",
+                details: "Receive Messages attempted but Diafaan provider is not implemented"
+            );
+            return Task.FromResult(Enumerable.Empty<ReceiveSmsRequest>());
+        }
+
+        public Task<DeleteMessageResponse> DeleteReceivedMessage(Guid messageId)
+        {
+            Logger.LogWarning(
+                provider: "Diafaan",
+                eventType: "NotImplemented",
+                messageID: "",
+                details: "Delete Message attempted but Diafaan provider is not implemented"
+            );
+            return Task.FromResult(new DeleteMessageResponse(
+                MessageID: messageId.ToString(),
+                Deleted: false,
+                DeleteFeedback: "Delete operation not implemented for Diafaan provider"
+            ));
+        }
+
     }
 }

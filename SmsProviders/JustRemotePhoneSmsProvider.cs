@@ -3,20 +3,22 @@ using SMS_Bridge.Models;
 using JustRemotePhone.RemotePhoneService;
 using SMS_Bridge.Services;
 using System.Collections.Concurrent;
+using Microsoft.AspNetCore.DataProtection.KeyManagement;
 
 namespace SMS_Bridge.SmsProviders
 {
     public class JustRemotePhoneSmsProvider : ISmsProvider
     {
-        public event Action<Guid, string[]> OnMessageTimeout; // Our custom timeout event
+        public event Action<Guid, string[]> OnMessageTimeout = delegate { }; // Our custom timeout event
 
-        private static Application _app;
+        private static Application? _app; // Set to non-null in the ctor
         private static bool _isConnected = false;
         private static readonly SemaphoreSlim _connectionLock = new SemaphoreSlim(1, 1);
         private static readonly int _connectionTimeoutMs = 10000; // 10 seconds
         private static readonly ConcurrentDictionary<Guid, Timer> _messageTimers = new();
         private const int MESSAGE_TIMEOUT_MS = 180000; // 3 minutes
-        private static readonly ConcurrentDictionary<Guid, SMSSentResult> _messageStatuses = new();
+        private static readonly ConcurrentDictionary<Guid, (SMSSentResult Result, DateTime CreatedAt)> _messageStatuses = new();
+        private static readonly ConcurrentDictionary<Guid, (ReceiveSmsRequest Sms, DateTime ReceivedAt)> _receivedMessages = new();
 
         public JustRemotePhoneSmsProvider()
         {
@@ -25,6 +27,8 @@ namespace SMS_Bridge.SmsProviders
                 _app = new Application("SMS Bridge");
                 _app.ApplicationStateChanged += OnApplicationStateChanged;
                 _app.Phone.SMSSendResult += OnSMSSendResult;
+                _app.Phone.SMSReceived += OnSMSReceived;
+
                 OnMessageTimeout += HandleMessageTimeout; // Setup our own custom timeout handler
 
                 _app.BeginConnect(true);
@@ -46,8 +50,9 @@ namespace SMS_Bridge.SmsProviders
         private async Task<bool> EnsureConnectedAsync()
         {
             if (_isConnected) return true;
+            if (_app == null) return false; // Constructor screwed up somehow
 
-            await _connectionLock.WaitAsync();
+                await _connectionLock.WaitAsync();
             try
             {
                 // Double-check pattern
@@ -104,7 +109,7 @@ namespace SMS_Bridge.SmsProviders
                 messageID: messageId.ToString(),
                 details: $"Message timed out after {MESSAGE_TIMEOUT_MS / 1000} seconds. Numbers: {string.Join(",", numbers)}"
             );
-            _messageStatuses[messageId] = SMSSentResult.ErrorGeneric;
+            _messageStatuses[messageId] = (SMSSentResult.ErrorGeneric, DateTime.UtcNow);
 
         }
 
@@ -115,7 +120,7 @@ namespace SMS_Bridge.SmsProviders
                 timer.Dispose();
             }
 
-            _messageStatuses[smsSendRequestId] = results.FirstOrDefault();
+            _messageStatuses[smsSendRequestId] = (results.FirstOrDefault(), DateTime.UtcNow);
 
 
             for (int i = 0; i < numbers.Length; i++)
@@ -130,8 +135,29 @@ namespace SMS_Bridge.SmsProviders
             }
         }
 
+        private void OnSMSReceived(string number, string contactLabel, string text)
+        {
+            var messageID = Guid.NewGuid(); // Generate a new ID for logging and tracking
+            // Log the incoming message
+            Logger.LogInfo(
+                provider: "JustRemotePhone",
+                eventType: "SMSReceived",
+                messageID: messageID.ToString(), 
+                details: $"From: {number}, Contact: {contactLabel}, Message: {text}"
+            );
+
+            // You might want to add additional logic here, such as storing the message in your database or triggering other processes.
+            var receivedSms = new ReceiveSmsRequest(
+                MessageID: messageID,
+                FromNumber: number,
+                MessageText: text,
+                ReceivedAt: DateTime.UtcNow
+            );
+        }
+
         public async Task<(IResult Result, Guid MessageId)> SendSms(SendSmsRequest request)
         {
+
             // Validation check
             if (request.PhoneNumber.Contains(',') || request.PhoneNumber.Contains(';'))
             {
@@ -166,6 +192,7 @@ namespace SMS_Bridge.SmsProviders
                     messageID: "",
                     details: $"PhoneNumber: {request.PhoneNumber}, Message: {request.Message}"
                 );
+                if (_app == null) throw new InvalidOperationException("SMS provider not properly initialized");
 
                 _app.Phone.SendSMS(numbers, text, out sendSMSRequestId);
                 SetupMessageTimeout(sendSMSRequestId, numbers);
@@ -178,10 +205,10 @@ namespace SMS_Bridge.SmsProviders
                 );
 
                 var result = Results.Ok(new Result
-                {
-                    Success = true,
-                    Message = "SMS queued for sending"
-                });
+                (
+                    Success: true,
+                    Message: "SMS queued for sending"
+                ));
 
                 return (Result: result, MessageId: sendSMSRequestId);
             }
@@ -204,12 +231,54 @@ namespace SMS_Bridge.SmsProviders
             }
         }
 
+        public Task<IEnumerable<ReceiveSmsRequest>> GetReceivedMessages()
+        {
+            var messages = _receivedMessages.Values
+                .Select(m => m.Sms);
+
+            _receivedMessages.Clear();
+            return Task.FromResult(messages);
+        }
+
+        public Task<DeleteMessageResponse> DeleteReceivedMessage(Guid messageId)
+        {
+            if (_receivedMessages.TryRemove(messageId, out _))
+            {
+                return Task.FromResult(new DeleteMessageResponse(
+                    MessageID: messageId.ToString(),
+                    Deleted: true,
+                    DeleteFeedback: "Message deleted successfully"
+                ));
+            }
+
+            return Task.FromResult(new DeleteMessageResponse(
+                MessageID: messageId.ToString(),
+                Deleted: false,
+                DeleteFeedback: "Message not found"
+            ));
+        }
+
+        public static void CleanupOldEntries()  // Currently not called
+        {
+            var threshold = DateTime.UtcNow.AddDays(-30);
+            foreach (var key in _messageStatuses.Keys)
+            {
+                if (_messageStatuses.TryGetValue(key, out var value) && value.CreatedAt < threshold)
+                {
+                    _messageStatuses.TryRemove(key, out _);
+                }
+            }
+        }
+
+    
 
         public Task<MessageStatus> GetMessageStatus(Guid messageId)
         {
             // If we have a final status, map it to our simplified enum
-            if (_messageStatuses.TryGetValue(messageId, out var justRemoteStatus))
+            if (_messageStatuses.TryGetValue(messageId, out var messageData))
             {
+                // messageData is now a tuple: (Result, CreatedAt)
+                var justRemoteStatus = messageData.Result; // Extract the SMSSentResult
                 return Task.FromResult(justRemoteStatus switch
                 {
                     SMSSentResult.Ok => MessageStatus.Delivered,

@@ -14,7 +14,8 @@ namespace SMS_Bridge.SmsProviders
     {
         Task<(IResult Result, Guid MessageId)> SendSms(SendSmsRequest request);
         Task<MessageStatus> GetMessageStatus(Guid messageId);
-
+        Task<IEnumerable<ReceiveSmsRequest>> GetReceivedMessages();
+        Task<DeleteMessageResponse> DeleteReceivedMessage(Guid messageId);
     }
 
 }

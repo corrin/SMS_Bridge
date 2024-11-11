@@ -9,11 +9,11 @@
     public static class Testing
     {
 
-        public class CheckSendSmsResponse
-        {
-            public Guid MessageID { get; set; }
-            public string Status { get; set; }
-        }
+        public record CheckSendSmsResponse
+        (
+            Guid MessageID,
+            string Status
+        );
 
         public static void RegisterTestingEndpoints(RouteGroupBuilder smsGatewayApi, IConfiguration configuration)
         {
@@ -29,11 +29,11 @@
                 var messageId = await smsQueueService.QueueSms(testRequest);
 
                 return Results.Ok(new Result
-                {
-                    Success = true,
-                    Message = "SMS queued for sending",
-                    MessageID = messageId.ToString()
-                });
+                (
+                    Success: true,
+                    Message: "SMS queued for sending",
+                    MessageID: messageId.ToString()
+                ));
             });
 
             smsGatewayApi.MapGet("/test/send-bulk-sms", async (IServiceProvider services) =>
@@ -53,11 +53,10 @@
                 }
 
                 // Create a response that includes both results and message IDs
-                return Results.Ok(new
-                {
-                    Results = responses.Select(r => r.Result),
-                    MessageIds = responses.Select(r => r.MessageId.ToString())
-                });
+                return Results.Ok(new BulkSmsResponse(
+                    Results: responses.Select(r => r.Result),
+                    MessageIds: responses.Select(r => r.MessageId.ToString())
+                ));
             });
 
             smsGatewayApi.MapGet("/test/check-send-sms", async (IServiceProvider services) =>
@@ -91,10 +90,10 @@
 
 
                 return Results.Ok(new CheckSendSmsResponse
-                {
-                    MessageID = messageId,
-                    Status = status.ToString()
-                });
+                (
+                    MessageID: messageId,
+                    Status: status.ToString()
+                ));
             });
 
         }

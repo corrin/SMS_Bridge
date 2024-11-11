@@ -13,15 +13,27 @@ namespace SMS_Bridge.Services
         static Logger()
         {
             Directory.CreateDirectory(LogDirectory);
+            bool isWindows = OperatingSystem.IsWindows();
 
-            // Check if ODSMS source exists
-            try
+            if (isWindows)
             {
-                _eventLogAvailable = EventLog.SourceExists(EventSource);
+
+                // Check if ODSMS source exists
+                try
+                {
+                    _eventLogAvailable = EventLog.SourceExists(EventSource);
+                }
+                catch
+                {
+                    _eventLogAvailable = false;
+                    Console.WriteLine("Something went wrong using the event log ODSMS");
+
+                }
             }
-            catch
+            else
             {
                 _eventLogAvailable = false;
+                Console.WriteLine($"EventLog not available on {Environment.OSVersion.Platform}");
             }
         }
 
@@ -29,15 +41,14 @@ namespace SMS_Bridge.Services
         {
             try
             {
-                var logEntry = new LogEntry
-                {
-                    Timestamp = DateTime.UtcNow.ToString("o"),
-                    Level = level,
-                    Provider = provider,
-                    EventType = eventType,
-                    MessageId = messageID,
-                    Details = details
-                };
+                var logEntry = new LogEntry(
+                    Timestamp: DateTime.UtcNow.ToString("o"),
+                    Level: level,
+                    Provider: provider,
+                    EventType: eventType,
+                    MessageId: messageID,
+                    Details: details
+                );
 
                 string jsonLog = JsonSerializer.Serialize(logEntry, AppJsonSerializerContext.Default.LogEntry);
                 string logFilePath = Path.Combine(LogDirectory, $"SMS_Log_{DateTime.UtcNow:yyyyMMdd}.log");
@@ -52,7 +63,7 @@ namespace SMS_Bridge.Services
 
         public static void LogCritical(string provider, string eventType, string messageID, string details)
         {
-            if (_eventLogAvailable)
+            if (OperatingSystem.IsWindows() && _eventLogAvailable)
             {
                 try
                 {
@@ -62,7 +73,7 @@ namespace SMS_Bridge.Services
                 }
                 catch
                 {
-                    // If even this fails, we're in real trouble
+                    Console.WriteLine("PANIC! can't write to the event log");
                 }
             }
 

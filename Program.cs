@@ -52,11 +52,11 @@ app.MapPost("/send-sms", async (SendSmsRequest request, SmsQueueService smsQueue
     {
         var messageID = await smsQueueService.QueueSms(request);
         return Results.Ok(new Result
-        {
-            Success = true,
-            Message = "SMS queued for sending",
-            MessageID = messageID.ToString()
-        });
+        (
+            Success: true,
+            Message: "SMS queued for sending",
+            MessageID: messageID.ToString()
+        ));
     }
     catch (Exception ex)
     {
@@ -73,12 +73,48 @@ smsGatewayApi.MapGet("/sms-status/{messageId}", async (string messageId, ISmsPro
 
     var status = await smsProvider.GetMessageStatus(guid);
     return Results.Ok(new MessageStatusResponse
-    {
-        MessageID = messageId,
-        Status = status
-    });
+    (
+        MessageID: messageId,
+        Status: status
+    ));
 
 });
+
+smsGatewayApi.MapGet("/received-sms", async (ISmsProvider smsProvider) =>
+{
+    if (smsProvider is not JustRemotePhoneSmsProvider provider)
+    {
+        return Results.BadRequest("Unsupported SMS provider");
+    }
+
+    var messages = await provider.GetReceivedMessages();
+    return Results.Ok(messages);
+});
+
+// Note: Using MapGet instead of MapDelete for SMS gateway compatibility.
+// While DELETE would be more RESTful, existing SMS gateways (eTXT, JustRemote) 
+// commonly implement message deletion via GET endpoints for broader compatibility.
+smsGatewayApi.MapGet("/delete-received-sms/{messageId}", async (string messageId, ISmsProvider smsProvider) =>
+{
+    if (!Guid.TryParse(messageId, out var guid))
+    {
+        return Results.BadRequest("Invalid message ID format");
+    }
+
+    if (smsProvider is not JustRemotePhoneSmsProvider provider)
+    {
+        return Results.BadRequest("Unsupported SMS provider");
+    }
+
+    var result = await provider.DeleteReceivedMessage(guid);
+    if (result.Deleted)
+    {
+        return Results.Ok(result);
+    }
+    return Results.NotFound(result);
+});
+
+
 
 // Gateway Status Endpoint
 smsGatewayApi.MapGet("/gateway-status", () =>
