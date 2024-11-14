@@ -6,34 +6,70 @@ namespace SMS_Bridge.Services
 {
     public static class Logger
     {
-        private static readonly string LogDirectory = @"L:\od_sms\";
+        private static readonly string LogDirectory;
         private const string EventSource = "ODSMS";
         private static readonly bool _eventLogAvailable;
+        private const string DEFAULT_LOG_PATH = @"L:\od_logs\";
 
         static Logger()
         {
-            Directory.CreateDirectory(LogDirectory);
-            bool isWindows = OperatingSystem.IsWindows();
-
-            if (isWindows)
+            // Try to get config, fallback to default if not available
+            try
             {
+                var config = new ConfigurationBuilder()
+                    .AddJsonFile("appsettings.json", optional: true)
+                    .Build();
 
-                // Check if ODSMS source exists
+                LogDirectory = config["Logging:Directory"] ?? DEFAULT_LOG_PATH;
+            }
+            catch
+            {
+                LogDirectory = DEFAULT_LOG_PATH;
+            }
+
+            // Try primary directory, fallback to temp if needed
+            try
+            {
+                Directory.CreateDirectory(LogDirectory);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to create log directory at {LogDirectory}: {ex.Message}");
+
+                // Only fallback if primary was not the default
+                if (LogDirectory != DEFAULT_LOG_PATH)
+                {
+                    Console.WriteLine($"Attempting to use default path: {DEFAULT_LOG_PATH}");
+                    try
+                    {
+                        Directory.CreateDirectory(DEFAULT_LOG_PATH);
+                        LogDirectory = DEFAULT_LOG_PATH;
+                    }
+                    catch (Exception defaultEx)
+                    {
+                        Console.WriteLine($"Failed to create default log directory: {defaultEx.Message}");
+                        LogDirectory = Path.Combine(Path.GetTempPath(), "sms_bridge_logs");
+                        Directory.CreateDirectory(LogDirectory);
+                        Console.WriteLine($"Using temporary directory for logs: {LogDirectory}");
+                    }
+                }
+            }
+
+            if (OperatingSystem.IsWindows())
+            {
                 try
                 {
                     _eventLogAvailable = EventLog.SourceExists(EventSource);
+                    if (!_eventLogAvailable)
+                    {
+                        Console.WriteLine("Event log source ODSMS is not available");
+                    }
                 }
-                catch
+                catch (Exception ex)
                 {
                     _eventLogAvailable = false;
-                    Console.WriteLine("Something went wrong using the event log ODSMS");
-
+                    Console.WriteLine($"Failed to check event log source: {ex.Message}");
                 }
-            }
-            else
-            {
-                _eventLogAvailable = false;
-                Console.WriteLine($"EventLog not available on {Environment.OSVersion.Platform}");
             }
         }
 
@@ -55,9 +91,29 @@ namespace SMS_Bridge.Services
 
                 File.AppendAllText(logFilePath, jsonLog + Environment.NewLine);
             }
-            catch
+            catch (Exception ex)
             {
-                // Swallow file logging errors
+                string errorMessage = $"{level}|{provider}|{eventType}|{messageID}|{details}";
+                Console.WriteLine($"Failed to write to log file: {ex.Message}");
+
+                // Try event log if available
+                if (OperatingSystem.IsWindows() && _eventLogAvailable)
+                {
+                    try
+                    {
+                        EventLog.WriteEntry(EventSource,
+                            $"Logging failed: {errorMessage}",
+                            EventLogEntryType.Error);
+                        return;
+                    }
+                    catch (Exception eventLogEx)
+                    {
+                        Console.WriteLine($"Failed to write to event log: {eventLogEx.Message}");
+                    }
+                }
+
+                // Last resort - console
+                Console.WriteLine($"CRITICAL: All logging mechanisms failed. Original message: {errorMessage}");
             }
         }
 
@@ -71,9 +127,9 @@ namespace SMS_Bridge.Services
                         $"SMS Bridge: {provider}, Event: {eventType}, ID: {messageID}, Details: {details}",
                         EventLogEntryType.Error);
                 }
-                catch
+                catch (Exception ex)
                 {
-                    Console.WriteLine("PANIC! can't write to the event log");
+                    Console.WriteLine($"Failed to write critical event to event log: {ex.Message}");
                 }
             }
 

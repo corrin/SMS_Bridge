@@ -14,10 +14,11 @@ namespace SMS_Bridge.Models
     }
 
     public record BulkSmsResponse(
+        bool Success,
+        string Message,
         IEnumerable<IResult> Results,
         IEnumerable<string> MessageIds
     );
-
 
     public record MessageStatusResponse(
         string MessageID,
@@ -30,6 +31,12 @@ namespace SMS_Bridge.Models
         string MessageID,
         bool Deleted,
         string DeleteFeedback
+    );
+
+    public record DebugStatusResponse(
+        bool IsDebugMode,
+        string TestingPhoneNumber,
+        string[] AllowedTestNumbers
     );
 
 }

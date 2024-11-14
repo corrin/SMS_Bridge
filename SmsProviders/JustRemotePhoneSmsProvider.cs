@@ -194,6 +194,9 @@ namespace SMS_Bridge.SmsProviders
                 );
                 if (_app == null) throw new InvalidOperationException("SMS provider not properly initialized");
 
+                // First create/queue the SMS
+                _app.Phone.CreateSMS(numbers);
+
                 _app.Phone.SendSMS(numbers, text, out sendSMSRequestId);
                 SetupMessageTimeout(sendSMSRequestId, numbers);
 
@@ -258,22 +261,53 @@ namespace SMS_Bridge.SmsProviders
             ));
         }
 
-        public static void CleanupOldEntries()  // Currently not called
+        public static int CleanupOldEntries(DateTime threshold)
         {
-            var threshold = DateTime.UtcNow.AddDays(-30);
+            int count = 0;
+
             foreach (var key in _messageStatuses.Keys)
             {
                 if (_messageStatuses.TryGetValue(key, out var value) && value.CreatedAt < threshold)
                 {
-                    _messageStatuses.TryRemove(key, out _);
+                    if (_messageStatuses.TryRemove(key, out _))
+                    {
+                        count++;
+                    }
                 }
             }
+
+            foreach (var key in _receivedMessages.Keys)
+            {
+                if (_receivedMessages.TryGetValue(key, out var value) && value.ReceivedAt < threshold)
+                {
+                    if (_receivedMessages.TryRemove(key, out _))
+                    {
+                        count++;
+                    }
+                }
+            }
+
+            return count;
         }
 
-    
+
 
         public Task<MessageStatus> GetMessageStatus(Guid messageId)
         {
+
+            Logger.LogInfo(
+                provider: "JustRemotePhone",
+                eventType: "StatusCheck",
+                messageID: messageId.ToString(),
+                details: $"Timer exists: {_messageTimers.ContainsKey(messageId)}, Status exists: {_messageStatuses.ContainsKey(messageId)}"
+            );
+
+            // If we have an active timer, message is still pending
+            if (_messageTimers.ContainsKey(messageId))
+            {
+                return Task.FromResult(MessageStatus.Pending);
+            };
+
             // If we have a final status, map it to our simplified enum
             if (_messageStatuses.TryGetValue(messageId, out var messageData))
             {
@@ -286,11 +320,6 @@ namespace SMS_Bridge.SmsProviders
                 });
             }
 
-            // If we have an active timer, message is still pending
-            if (_messageTimers.ContainsKey(messageId))
-            {
-                return Task.FromResult(MessageStatus.Pending);
-            }
 
             // If we don't know about this message at all, treat it as Failed
             Logger.LogWarning(
