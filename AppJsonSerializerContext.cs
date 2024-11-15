@@ -8,6 +8,7 @@ namespace SMS_Bridge
 {
     [JsonSerializable(typeof(SendSmsRequest))]
     [JsonSerializable(typeof(ReceiveSmsRequest))]
+    [JsonSerializable(typeof(IEnumerable<ReceiveSmsRequest>))]
     [JsonSerializable(typeof(ProblemDetails))]
     [JsonSerializable(typeof(LogEntry))]
     [JsonSerializable(typeof(Result))]
@@ -21,4 +22,6 @@ namespace SMS_Bridge
     internal partial class AppJsonSerializerContext : JsonSerializerContext
     {
     }
+
+
 }

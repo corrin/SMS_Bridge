@@ -5,11 +5,31 @@ using Microsoft.Extensions.Configuration;
 using SMS_Bridge.SmsProviders;
 using SMS_Bridge.Services;
 using System.Diagnostics;
+using System.Text.Json;
+
 
 var builder = WebApplication.CreateSlimBuilder(args);
+builder.WebHost.UseUrls("http://*:5170");  // Explicitly sets the port so it can be deployed
+
+// Your existing code starts here
+Console.WriteLine("Starting SMS_Bridge application...");
+
+Thread.Sleep(10000);  // 10 second delay to give us time to attach
+
+if (Environment.UserInteractive == false) // Checks if running as a service
+{
+    builder.Host.UseWindowsService();
+} else
+{
+    Console.WriteLine("Running as a console application...");
+}
+Console.WriteLine("About to start the main try/catch...");
 
 try
 {
+    Logger.Initialize();
+
+
     // Load and validate critical configuration
     var configuration = builder.Configuration;
     configuration.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
@@ -155,13 +175,32 @@ try
 
     smsGatewayApi.MapGet("/received-sms", async (ISmsProvider smsProvider) =>
     {
-        if (smsProvider is not JustRemotePhoneSmsProvider provider)
-        {
-            return Results.BadRequest("Unsupported SMS provider");
-        }
+        try
+        { 
+            if (smsProvider is not JustRemotePhoneSmsProvider provider)
+            {
+                return Results.BadRequest("Unsupported SMS provider");
+            }
 
-        var messages = await provider.GetReceivedMessages();
-        return Results.Ok(messages);
+            var messages = await provider.GetReceivedMessages();
+            var json = JsonSerializer.Serialize(messages, AppJsonSerializerContext.Default.IEnumerableReceiveSmsRequest);
+
+            return Results.Ok(messages);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(
+                provider: "API",
+                eventType: "GetReceivedMessagesEndpoint",
+                messageID: "",
+                details: $"Error in received-sms endpoint: {ex.Message}"
+            );
+            return Results.Problem(
+                detail: "An error occurred while retrieving messages",
+                statusCode: 500,
+                title: "Internal Server Error"
+            );
+        }
     });
 
     smsGatewayApi.MapGet("/delete-received-sms/{messageId}", async (string messageId, ISmsProvider smsProvider) =>
@@ -200,9 +239,10 @@ try
         return Results.Ok(resp);
     });
 
-    if (isDebugMode)
+    if (true)  // We used to restrict to Debug Mode but it complicated PVT
     {
         var testingApi = app.MapGroup("/smsgateway/test");
+
         Testing.RegisterTestingEndpoints(testingApi, configuration);
 
         Logger.LogInfo(
@@ -211,6 +251,7 @@ try
             messageID: "",
             details: "Debug mode enabled - test endpoints registered"
         );
+
     }
 
     Logger.LogInfo(
@@ -224,6 +265,9 @@ try
 }
 catch (Exception ex)
 {
+
+    Console.WriteLine($"Application failed to start. About to log: {ex}");
+
     Logger.LogCritical(
         provider: "Startup",
         eventType: "StartupFailure",

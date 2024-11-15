@@ -4,6 +4,7 @@ using JustRemotePhone.RemotePhoneService;
 using SMS_Bridge.Services;
 using System.Collections.Concurrent;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using System.Collections.Generic;
 
 namespace SMS_Bridge.SmsProviders
 {
@@ -119,7 +120,7 @@ namespace SMS_Bridge.SmsProviders
             {
                 timer.Dispose();
             }
-
+            // COnsider Datetimeoffset.UtcNow
             _messageStatuses[smsSendRequestId] = (results.FirstOrDefault(), DateTime.UtcNow);
 
 
@@ -153,6 +154,7 @@ namespace SMS_Bridge.SmsProviders
                 MessageText: text,
                 ReceivedAt: DateTime.UtcNow
             );
+            _receivedMessages.TryAdd(messageID, (receivedSms, DateTime.UtcNow));
         }
 
         public async Task<(IResult Result, Guid MessageId)> SendSms(SendSmsRequest request)
@@ -239,7 +241,10 @@ namespace SMS_Bridge.SmsProviders
             var messages = _receivedMessages.Values
                 .Select(m => m.Sms);
 
-            _receivedMessages.Clear();
+            foreach (var message in messages)
+            {
+                _receivedMessages.TryRemove(message.MessageID, out _);
+            }
             return Task.FromResult(messages);
         }
 
