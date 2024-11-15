@@ -36,6 +36,10 @@ namespace SMS_Bridge.Services
                 string logFilePath = Path.Combine(LOG_PATH, $"SMS_Log_{DateTime.UtcNow:yyyyMMdd}.log");
 
                 File.AppendAllText(logFilePath, jsonLog + Environment.NewLine);
+
+                // Simplified console log
+                Console.WriteLine($"{DateTime.UtcNow:HH:mm:ss} | {level} | {provider} | {eventType} | {details}");
+
             }
             catch (Exception ex)
             {
