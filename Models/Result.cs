@@ -2,6 +2,16 @@
 
 namespace SMS_Bridge.Models
 {
+
+    public enum SmsStatus
+    {
+        Pending,     // Just sent, no updates yet
+        Delivered,   // Got confirmation of delivery
+        Failed,      // Got confirmation of failure
+        Unknown,     // Generic/unexpected status
+        TimedOut     // No update received in time
+    }
+
     public record Result(
         bool Success,
         string Message,
@@ -22,7 +32,7 @@ namespace SMS_Bridge.Models
 
     public record MessageStatusResponse(
         string MessageID,
-        MessageStatus Status)
+        SmsStatus Status)
     {
         public string StatusDisplay => Status.ToString();
     }
@@ -38,5 +48,13 @@ namespace SMS_Bridge.Models
         string TestingPhoneNumber,
         string[] AllowedTestNumbers
     );
+
+    public record MessageStatusRecord(
+        Guid MessageId,
+        SmsStatus Status,
+        DateTime SentAt,
+        DateTime StatusAt
+    );
+
 
 }

@@ -6,7 +6,6 @@ namespace SMS_Bridge.Services
 {
     public static class Logger
     {
-        private static readonly bool _eventLogAvailable;
         private const string LOG_PATH = @"\\OPENDENTAL\OD Letters\od_logs";
 
 
@@ -24,7 +23,7 @@ namespace SMS_Bridge.Services
             try
             {
                 var logEntry = new LogEntry(
-                    Timestamp: DateTime.UtcNow.ToString("o"),
+                    Timestamp: DateTime.Now.ToString("o"),
                     Level: level,
                     Provider: provider,
                     EventType: eventType,
@@ -33,12 +32,12 @@ namespace SMS_Bridge.Services
                 );
 
                 string jsonLog = JsonSerializer.Serialize(logEntry, AppJsonSerializerContext.Default.LogEntry);
-                string logFilePath = Path.Combine(LOG_PATH, $"SMS_Log_{DateTime.UtcNow:yyyyMMdd}.log");
+                string logFilePath = Path.Combine(LOG_PATH, $"SMS_Log_{DateTime.Now:yyyyMMdd}.log");
 
                 File.AppendAllText(logFilePath, jsonLog + Environment.NewLine);
 
                 // Simplified console log
-                Console.WriteLine($"{DateTime.UtcNow:HH:mm:ss} | {level} | {provider} | {eventType} | {details}");
+                Console.WriteLine($"{DateTime.Now:HH:mm:ss} | {level} | {provider} | {eventType} | {details}");
 
             }
             catch (Exception ex)

@@ -16,7 +16,7 @@ namespace SMS_Bridge.SmsProviders
             return Task.FromResult((Result: result, MessageId: Guid.Empty));
         }
 
-        public Task<MessageStatus> GetMessageStatus(Guid messageId)
+        public Task<SmsStatus> GetMessageStatus(Guid messageId)
         {
             Logger.LogWarning(
                 provider: "Diafaan",
@@ -24,7 +24,7 @@ namespace SMS_Bridge.SmsProviders
                 messageID: messageId.ToString(),
                 details: "Status check attempted but eTXT provider is not implemented"
             );
-            return Task.FromResult(MessageStatus.Failed);
+            return Task.FromResult(SmsStatus.Failed);
         }
 
         public Task<IEnumerable<ReceiveSmsRequest>> GetReceivedMessages()
@@ -51,6 +51,17 @@ namespace SMS_Bridge.SmsProviders
                 Deleted: false,
                 DeleteFeedback: "Delete operation not implemented for Diafaan provider"
             ));
+        }
+
+        public Task<IEnumerable<MessageStatusRecord>> GetRecentMessageStatuses()
+        {
+            Logger.LogWarning(
+                provider: "eTXT",
+                eventType: "NotImplemented",
+                messageID: "",
+                details: "Get Recent Statuses attempted but Diafaan provider is not implemented"
+            );
+            return Task.FromResult(Enumerable.Empty<MessageStatusRecord>());
         }
 
     }

@@ -8,13 +8,16 @@ using System.Diagnostics;
 using System.Text.Json;
 
 
+// TODO: Enhancement.
+//
+// On QUIT: Log all received messages in the dictionary
+// And reload that dictionary on startup
+
 var builder = WebApplication.CreateSlimBuilder(args);
 builder.WebHost.UseUrls("http://*:5170");  // Explicitly sets the port so it can be deployed
 
 // Your existing code starts here
 Console.WriteLine("Starting SMS_Bridge application...");
-
-Thread.Sleep(10000);  // 10 second delay to give us time to attach
 
 if (Environment.UserInteractive == false) // Checks if running as a service
 {
@@ -85,7 +88,6 @@ try
 
     // Register services
     builder.Services.AddSingleton<SmsQueueService>();
-    builder.Services.AddHostedService<MessageCleanupService>();
 
     var app = builder.Build();
 
@@ -202,6 +204,37 @@ try
             );
         }
     });
+
+    smsGatewayApi.MapGet("/recent-status-values", async (ISmsProvider smsProvider) =>
+    {
+        try
+        {
+            if (smsProvider is not JustRemotePhoneSmsProvider provider)
+            {
+                return Results.BadRequest("Unsupported SMS provider");
+            }
+
+            var statuses = await provider.GetRecentMessageStatuses();
+            var json = JsonSerializer.Serialize(statuses, AppJsonSerializerContext.Default.IEnumerableMessageStatusRecord);
+
+            return Results.Ok(statuses);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(
+                provider: "API",
+                eventType: "GetReceivedMessagesEndpoint",
+                messageID: "",
+                details: $"Error in received-sms endpoint: {ex.Message}"
+            );
+            return Results.Problem(
+                detail: "An error occurred while retrieving messages",
+                statusCode: 500,
+                title: "Internal Server Error"
+            );
+        }
+    });
+
 
     smsGatewayApi.MapGet("/delete-received-sms/{messageId}", async (string messageId, ISmsProvider smsProvider) =>
     {

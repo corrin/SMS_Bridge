@@ -51,9 +51,9 @@
                 {
                     var provider = services.GetRequiredService<ISmsProvider>();
                     var configuration = services.GetRequiredService<IConfiguration>();
-                    var defaultPhoneNumber = configuration["SmsSettings:TestingPhoneNumber"] ?? "+6421467784";
+                    var defaultPhoneNumber = configuration["SmsSettings:TestingPhoneNumber"] ?? "+64211626986";
                     var responses = new List<(IResult Result, Guid MessageId)>();
-                    var totalMessages = 20;
+                    var totalMessages = 50;
 
                     for (int i = 0; i < totalMessages; i++)
                     {
@@ -92,7 +92,7 @@
                     var testRequest = new SendSmsRequest(defaultPhoneNumber, "This is a test message during development");
 
                     var messageId = await smsQueueService.QueueSms(testRequest);
-                    var status = MessageStatus.Pending;
+                    var status = SmsStatus.Pending;
 
                     await Task.Delay(1000); // Initial delay
 
@@ -101,7 +101,7 @@
                     {
                         await Task.Delay(1000);
                         status = await smsProvider.GetMessageStatus(messageId);
-                        if (status != MessageStatus.Pending)
+                        if (status != SmsStatus.Pending)
                         {
                             break;
                         }
