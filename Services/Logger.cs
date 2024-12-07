@@ -11,10 +11,25 @@ namespace SMS_Bridge.Services
 
         public static void Initialize()
         {
-            // Verify immediately that we can write logs
-            var testFile = Path.Combine(LOG_PATH, "test.log");
-            File.WriteAllText(testFile, "Logging test");
-            File.Delete(testFile);
+            try
+            {
+                if (!Directory.Exists(LOG_PATH))
+                {
+                    throw new InvalidOperationException($"Log directory does not exist: {LOG_PATH}");
+                }
+
+                var testFile = Path.Combine(LOG_PATH, "test.log");
+                File.WriteAllText(testFile, "Logging test");
+                File.Delete(testFile);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                throw new InvalidOperationException($"The application does not have write permissions for the log directory: {LOG_PATH}");
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to initialize logging: {ex.Message}");
+            }
         }
 
 

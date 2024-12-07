@@ -30,19 +30,30 @@ namespace SMS_Bridge.Services
             var settings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var lines = File.ReadAllLines(ConfigFilePath);
 
-            foreach (var line in lines)
+            for (int i = 0; i < lines.Length; i++)
             {
-                // Skip comments or empty lines
-                if (string.IsNullOrWhiteSpace(line) || line.StartsWith("#"))
+                var line = lines[i];
+
+                // Remove comments
+                var commentIndex = line.IndexOf('#');
+                if (commentIndex >= 0)
+                {
+                    line = line.Substring(0, commentIndex);
+                }
+
+                if (string.IsNullOrWhiteSpace(line))
                     continue;
 
-                var parts = line.Split(':', 2); // Split on the first colon
-                if (parts.Length == 2)
+                var parts = line.Split(':', 2);
+                if (parts.Length != 2)
                 {
-                    var key = parts[0].Trim();
-                    var value = parts[1].Trim();
-                    settings[key] = value;
+                    throw new InvalidOperationException(
+                        $"Malformed configuration line {i + 1}: '{lines[i]}'. Ensure the file uses 'key: value' pairs.");
                 }
+
+                var key = parts[0].Trim();
+                var value = parts[1].Trim();
+                settings[key] = value;
             }
 
             return settings;
