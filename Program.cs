@@ -40,8 +40,9 @@ try
     var smsProvider = configuration["SmsSettings:Provider"]?.ToLower() ??
         throw new InvalidOperationException("SMS provider must be configured in appsettings.json");
 
-    var apiKey = configuration["Security:ApiKey"] ??
-        throw new InvalidOperationException("API key must be configured in appsettings.json");
+    Configuration fileConfiguration = new Configuration();
+
+    var apiKey = fileConfiguration.GetApiKey();
 
     // Validate production machines configuration
     var productionMachines = configuration.GetSection("SmsSettings:ProductionMachines")
