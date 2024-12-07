@@ -1,3 +1,22 @@
+# SMS_Bridge
+
+A lightweight SMS bridge application that integrates with multiple SMS providers. Designed for simplicity, reliability, and fail-fast operation.
+
+## Features
+- Supports multiple SMS providers:
+  - JustRemotePhone
+  - eTXT (stub implementation)
+  - Diafaan (stub implementation)
+- Queue-based SMS sending with clear logging and error handling.
+- Fail-fast configuration for reliable operation.
+- Designed to run as a Windows service or a standalone console application.
+
+## Installation
+
+1. **Copy Files**
+   ```bash
+   xcopy /E /I * "C:\Program Files\SMS_Bridge"
+
 # Install Insructions
 
 xcopy /E /I * "C:\Program Files\SMS_Bridge"

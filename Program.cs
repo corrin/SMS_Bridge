@@ -100,20 +100,35 @@ try
 
             if (httpContext.Request.Host.Host.ToLower() is "localhost" or "127.0.0.1")
             {
+                // Allow localhost access without API key validation
                 return await next(context);
             }
 
-            if (!httpContext.Request.Headers.TryGetValue("X-API-Key", out var requestApiKey) ||
-                requestApiKey != apiKey)
+            // Check if the API key header exists
+            if (!httpContext.Request.Headers.TryGetValue("X-API-Key", out var requestApiKey))
             {
                 Logger.LogWarning(
                     provider: "Security",
                     eventType: "UnauthorizedAccess",
                     messageID: "",
-                    details: $"Unauthorized access attempt from {httpContext.Connection.RemoteIpAddress}"
+                    details: $"Unauthorized access attempt from {httpContext.Connection.RemoteIpAddress}: Missing API Key"
                 );
                 return Results.Unauthorized();
             }
+
+            // Validate the API key
+            if (requestApiKey != apiKey)
+            {
+                Logger.LogWarning(
+                    provider: "Security",
+                    eventType: "UnauthorizedAccess",
+                    messageID: "",
+                    details: $"Unauthorized access attempt from {httpContext.Connection.RemoteIpAddress}: Invalid API Key"
+                );
+                return Results.Unauthorized();
+            }
+
+            // Proceed with the request
             return await next(context);
         });
 

@@ -53,6 +53,12 @@ namespace SMS_Bridge.Services
 
                 var key = parts[0].Trim();
                 var value = parts[1].Trim();
+
+                if (settings.ContainsKey(key))
+                {
+                    throw new InvalidOperationException($"Duplicate key '{key}' found in configuration file: {ConfigFilePath}");
+                }
+
                 settings[key] = value;
             }
 

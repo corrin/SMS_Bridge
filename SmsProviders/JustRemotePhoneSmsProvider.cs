@@ -95,8 +95,7 @@ namespace SMS_Bridge.SmsProviders
                     {
                         foreach (var message in messages)
                         {
-                            // Reconstruct dictionary entries with a default `ReceivedAt` value
-                            _receivedMessages[message.MessageID] = (message, DateTime.Now);
+                            _receivedMessages[message.MessageID] = (message, message.ReceivedAt);
                         }
 
                         Logger.LogInfo(
