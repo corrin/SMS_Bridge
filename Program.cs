@@ -8,13 +8,15 @@ using System.Diagnostics;
 using System.Text.Json;
 
 
+
 // TODO: Enhancement.
 //
 // On QUIT: Log all received messages in the dictionary
 // And reload that dictionary on startup
 
+var appPort = 5170;
 var builder = WebApplication.CreateSlimBuilder(args);
-builder.WebHost.UseUrls("http://*:5170");  // Explicitly sets the port so it can be deployed
+builder.WebHost.UseUrls($"http://*:{appPort}");  // Explicitly sets the port so it can be deployed
 
 // Your existing code starts here
 Console.WriteLine("Starting SMS_Bridge application...");
@@ -104,29 +106,29 @@ try
                 return await next(context);
             }
 
-            // Check if the API key header exists
-            if (!httpContext.Request.Headers.TryGetValue("X-API-Key", out var requestApiKey))
-            {
-                Logger.LogWarning(
-                    provider: "Security",
-                    eventType: "UnauthorizedAccess",
-                    messageID: "",
-                    details: $"Unauthorized access attempt from {httpContext.Connection.RemoteIpAddress}: Missing API Key"
-                );
-                return Results.Unauthorized();
-            }
+            //// Check if the API key header exists
+            //if (!httpContext.Request.Headers.TryGetValue("X-API-Key", out var requestApiKey))
+            //{
+            //    Logger.LogWarning(
+            //        provider: "Security",
+            //        eventType: "UnauthorizedAccess",
+            //        messageID: "",
+            //        details: $"Unauthorized access attempt from {httpContext.Connection.RemoteIpAddress}: Missing API Key"
+            //    );
+            //    return Results.Unauthorized();
+            //}
 
-            // Validate the API key
-            if (requestApiKey != apiKey)
-            {
-                Logger.LogWarning(
-                    provider: "Security",
-                    eventType: "UnauthorizedAccess",
-                    messageID: "",
-                    details: $"Unauthorized access attempt from {httpContext.Connection.RemoteIpAddress}: Invalid API Key"
-                );
-                return Results.Unauthorized();
-            }
+            //// Validate the API key
+            //if (requestApiKey != apiKey)
+            //{
+            //    Logger.LogWarning(
+            //        provider: "Security",
+            //        eventType: "UnauthorizedAccess",
+            //        messageID: "",
+            //        details: $"Unauthorized access attempt from {httpContext.Connection.RemoteIpAddress}: Invalid API Key"
+            //    );
+            //    return Results.Unauthorized();
+            //}
 
             // Proceed with the request
             return await next(context);

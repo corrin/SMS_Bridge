@@ -21,7 +21,7 @@ namespace SMS_Bridge.SmsProviders
         private static readonly SemaphoreSlim _connectionLock = new SemaphoreSlim(1, 1);
         private static readonly int _connectionTimeoutMs = 10000; // 10 seconds
         private static readonly ConcurrentDictionary<Guid, Timer> _messageTimers = new();
-        private const int MESSAGE_TIMEOUT_MS = 180000; // 3 minutes
+        private const int MESSAGE_TIMEOUT_MS = 630000; // 10.5 minutes
         private static readonly ConcurrentDictionary<Guid, (SmsStatus Status, DateTime SentAt, DateTime StatusAt)> _messageStatuses = new();
         private static readonly ConcurrentDictionary<Guid, (ReceiveSmsRequest Sms, DateTime ReceivedAt)> _receivedMessages = new();
         private readonly object _saveLock = new object(); // for saving the received messages Dictionary
