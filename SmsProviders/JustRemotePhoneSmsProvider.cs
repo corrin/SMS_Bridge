@@ -1,4 +1,4 @@
-﻿using System;
+﻿﻿using System;
 using SMS_Bridge.Models;
 using JustRemotePhone.RemotePhoneService;
 using SMS_Bridge.Services;
@@ -30,6 +30,35 @@ namespace SMS_Bridge.SmsProviders
             ReceivedMessagesDirectory,
             $"{Environment.MachineName}_received_sms.json"
         );
+        private readonly Timer _connectionHealthCheckTimer;
+        private const int CONNECTION_CHECK_INTERVAL_MS = 3600000; // Check connection every hour
+
+
+
+        private void RefreshConnection(object? state)
+        {
+            try
+            {
+                Logger.LogInfo(
+                    provider: "JustRemotePhone",
+                    eventType: "ConnectionHealthCheck",
+                    messageID: "",
+                    details: $"Performing periodic connection refresh, current state: {_isConnected}"
+                );
+
+                // Force a reconnection regardless of current state
+                _app.BeginConnect(true);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(
+                    provider: "JustRemotePhone",
+                    eventType: "ConnectionRefreshFailed",
+                    messageID: "",
+                    details: $"Failed to refresh connection: {ex.Message}"
+                );
+            }
+        }
 
 
         public JustRemotePhoneSmsProvider()
@@ -41,9 +70,12 @@ namespace SMS_Bridge.SmsProviders
             OnMessageTimeout += HandleMessageTimeout; // Setup our own custom timeout handler
 
             _app.BeginConnect(true);
+            _connectionHealthCheckTimer = new Timer(RefreshConnection, null,
+                CONNECTION_CHECK_INTERVAL_MS, CONNECTION_CHECK_INTERVAL_MS);
             LoadReceivedMessagesFromDisk();
         }
-        
+
+
         private void SaveReceivedMessagesToDisk()
         {
             lock (_saveLock)

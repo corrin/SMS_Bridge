@@ -27,7 +27,7 @@
                     var defaultPhoneNumber = configuration["SmsSettings:TestingPhoneNumber"] ?? "+6421467784";
                     var testRequest = new SendSmsRequest(defaultPhoneNumber, "This is a test message during development");
 
-                    var messageId = await smsQueueService.QueueSms(testRequest);
+                    var messageId = smsQueueService.QueueSms(testRequest);
 
                     return Results.Ok(new Result(
                         Success: true,
@@ -91,7 +91,7 @@
                     var defaultPhoneNumber = configuration["SmsSettings:TestingPhoneNumber"] ?? "+6421467784";
                     var testRequest = new SendSmsRequest(defaultPhoneNumber, "This is a test message during development");
 
-                    var messageId = await smsQueueService.QueueSms(testRequest);
+                    var messageId = smsQueueService.QueueSms(testRequest);
                     var status = SmsStatus.Pending;
 
                     await Task.Delay(1000); // Initial delay

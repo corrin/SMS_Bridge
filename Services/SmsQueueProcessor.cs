@@ -7,7 +7,8 @@ namespace SMS_Bridge.Services
     public class SmsQueueService
     {
         private readonly ISmsProvider _provider;
-        private readonly ConcurrentQueue<(SendSmsRequest Request, TaskCompletionSource<Guid> IdTask)> _smsQueue = new();
+        private readonly ConcurrentQueue<(SendSmsRequest Request, Guid ExternalId)> _smsQueue = new();
+        private readonly ConcurrentDictionary<Guid, Guid> _externalToInternal = new();
         private readonly Timer _processTimer;
         private const int PROCESS_INTERVAL_MS = 5000;
 
@@ -23,54 +24,60 @@ namespace SMS_Bridge.Services
                 details: "SMS Queue initialized");
         }
 
-        public Task<Guid> QueueSms(SendSmsRequest request)
+        public Guid QueueSms(SendSmsRequest request)
         {
             if (request == null)
             {
                 throw new ArgumentNullException(nameof(request));
             }
 
-            var tcs = new TaskCompletionSource<Guid>();
-            _smsQueue.Enqueue((request, tcs));
+            var externalId = Guid.NewGuid();
+            _smsQueue.Enqueue((request, externalId));
 
             Logger.LogInfo(
                 provider: "SmsQueue",
                 eventType: "MessageQueued",
-                messageID: "",
+                messageID: externalId.ToString(),
                 details: $"SMS queued for {request.PhoneNumber}");
 
-            return tcs.Task;
+            return externalId;
         }
 
         private async void ProcessQueue(object? state)
         {
             if (_smsQueue.TryDequeue(out var item))
             {
+                var (request, externalId) = item;
                 try
                 {
-                    var (result, messageId) = await _provider.SendSms(item.Request);
+                    var (result, internalId) = await _provider.SendSms(request);
                     if (result is IStatusCodeHttpResult statusCodeResult && statusCodeResult.StatusCode != 200)
                     {
                         throw new InvalidOperationException($"SMS send failed with status {statusCodeResult.StatusCode}");
                     }
 
-                    item.IdTask.SetResult(messageId);
+                    _externalToInternal[externalId] = internalId;
+
                     Logger.LogInfo(
                         provider: "SmsQueue",
                         eventType: "MessageSent",
-                        messageID: messageId.ToString(),
-                        details: $"SMS sent successfully to {item.Request.PhoneNumber}");
+                        messageID: externalId.ToString(),
+                        details: $"Mapped to internalId (SMSBridgeID): {internalId}, SMS sent to {request.PhoneNumber}");
                 }
                 catch (Exception ex)
                 {
                     Logger.LogError(
                         provider: "SmsQueue",
                         eventType: "SendFailed",
-                        messageID: "",
-                        details: $"Failed to send SMS to {item.Request.PhoneNumber}: {ex.Message}");
-                    item.IdTask.SetException(ex);
+                        messageID: externalId.ToString(),
+                        details: $"Failed to send SMS to {request.PhoneNumber}: {ex.Message}");
                 }
             }
+        }
+
+        public bool TryGetInternalId(Guid externalId, out Guid internalId)
+        {
+            return _externalToInternal.TryGetValue(externalId, out internalId);
         }
     }
 }

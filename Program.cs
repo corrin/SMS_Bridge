@@ -6,11 +6,11 @@ using SMS_Bridge.SmsProviders;
 using SMS_Bridge.Services;
 using System.Diagnostics;
 using System.Text.Json;
-
-
+using System.Net.Http.Headers;
+using System.Text;
+using System.Net.Http;
 
 // TODO: Enhancement.
-//
 // On QUIT: Log all received messages in the dictionary
 // And reload that dictionary on startup
 
@@ -24,16 +24,17 @@ Console.WriteLine("Starting SMS_Bridge application...");
 if (Environment.UserInteractive == false) // Checks if running as a service
 {
     builder.Host.UseWindowsService();
-} else
+}
+else
 {
     Console.WriteLine("Running as a console application...");
 }
+
 Console.WriteLine("About to start the main try/catch...");
 
 try
 {
     Logger.Initialize();
-
 
     // Load and validate critical configuration
     var configuration = builder.Configuration;
@@ -43,7 +44,6 @@ try
         throw new InvalidOperationException("SMS provider must be configured in appsettings.json");
 
     Configuration fileConfiguration = new Configuration();
-
     var apiKey = fileConfiguration.GetApiKey();
 
     // Validate production machines configuration
@@ -71,11 +71,15 @@ try
     // Register SMS provider
     builder.Services.AddSingleton<ISmsProvider>(services =>
     {
+        var httpClient = new HttpClient();
+        var etxtApiKey = configuration["ETxt:ApiKey"]!;
+        var etxtApiSecret = configuration["ETxt:ApiSecret"]!;
+
         ISmsProvider provider = smsProvider switch
         {
             "justremotephone" => new JustRemotePhoneSmsProvider(),
             "diafaan" => new DiafaanSmsProvider(),
-            "etxt" => new ETxtSmsProvider(),
+            "etxt" => CreateETxtProvider(configuration),
             _ => throw new InvalidOperationException($"Unsupported SMS provider: {smsProvider}")
         };
 
@@ -164,7 +168,7 @@ try
 
             var modifiedRequest = request with { PhoneNumber = destinationNumber };
 
-            var messageID = await smsQueueService.QueueSms(modifiedRequest);
+            var messageID = smsQueueService.QueueSms(modifiedRequest);
             return Results.Ok(new Result
             (
                 Success: true,
@@ -178,14 +182,21 @@ try
         }
     });
 
-    smsGatewayApi.MapGet("/sms-status/{messageId}", async (string messageId, ISmsProvider smsProvider) =>
+    // Note externalID is the SMSBridgeID - it's the ID we use when talking to external systems (OD mostly)
+    // and internalID is the ID used internally by providers (e.g. eTXT, Diafaan, etc.)
+    smsGatewayApi.MapGet("/sms-status/{messageId}", async (string messageId, ISmsProvider smsProvider, SmsQueueService smsQueueService) =>
     {
-        if (!Guid.TryParse(messageId, out var guid))
+        if (!Guid.TryParse(messageId, out var externalId))
         {
             return Results.BadRequest("Invalid message ID format");
         }
 
-        var status = await smsProvider.GetMessageStatus(guid);
+        if (!smsQueueService.TryGetInternalId(externalId, out var internalId))
+        {
+            return Results.NotFound("Unknown message ID");
+        }
+
+        var status = await smsProvider.GetMessageStatus(internalId);
         return Results.Ok(new MessageStatusResponse
         (
             MessageID: messageId,
@@ -196,7 +207,7 @@ try
     smsGatewayApi.MapGet("/received-sms", async (ISmsProvider smsProvider) =>
     {
         try
-        { 
+        {
             if (smsProvider is not JustRemotePhoneSmsProvider provider)
             {
                 return Results.BadRequest("Unsupported SMS provider");
@@ -253,7 +264,6 @@ try
         }
     });
 
-
     smsGatewayApi.MapGet("/delete-received-sms/{messageId}", async (string messageId, ISmsProvider smsProvider) =>
     {
         if (!Guid.TryParse(messageId, out var guid))
@@ -302,7 +312,6 @@ try
             messageID: "",
             details: "Debug mode enabled - test endpoints registered"
         );
-
     }
 
     Logger.LogInfo(
@@ -316,7 +325,6 @@ try
 }
 catch (Exception ex)
 {
-
     Console.WriteLine($"Application failed to start. About to log: {ex}");
 
     Logger.LogCritical(
@@ -326,4 +334,54 @@ catch (Exception ex)
         details: $"Application failed to start: {ex.Message}"
     );
     throw;
+}
+
+static ISmsProvider CreateETxtProvider(IConfiguration configuration)
+{
+    var httpClient = new HttpClient();
+    var apiKey = configuration["ETxt:ApiKey"]!;
+    var apiSecret = configuration["ETxt:ApiSecret"]!;
+    var callbackBaseUrl = Environment.UserInteractive
+        ? "https://sms-bridge.au.ngrok.io"
+        : "https://office.massey-smiles.co.nz:5170";
+
+    RegisterETxtWebhook(httpClient, apiKey, apiSecret, callbackBaseUrl).GetAwaiter().GetResult();
+    return new ETxtSmsProvider(httpClient, apiKey, apiSecret);
+}
+
+static async Task RegisterETxtWebhook(HttpClient httpClient, string apiKey, string apiSecret, string callbackBaseUrl)
+{
+    var body = new
+    {
+        url = $"{callbackBaseUrl}/smsgateway/receive-reply",
+        method = "POST",
+        encoding = "JSON",
+        events = new[] { "RECEIVED_SMS" },
+        template = "{\"replyId\":\"$moId\",\"messageId\":\"$mtId\",\"replyContent\":\"$moContent\",\"sourceAddress\":\"$sourceAddress\",\"destinationAddress\":\"$destinationAddress\",\"timestamp\":\"$receivedTimestamp\"}",
+        read_timeout = 5000,
+        retries = 3,
+        retry_delay = 30
+    };
+
+    var request = new HttpRequestMessage(HttpMethod.Post, "https://api.etxtservice.co.nz/v1/webhooks/messages")
+    {
+        Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
+    };
+
+    request.Headers.Authorization = new AuthenticationHeaderValue(
+        "Basic",
+        Convert.ToBase64String(Encoding.UTF8.GetBytes($"{apiKey}:{apiSecret}"))
+    );
+
+    var resp = await httpClient.SendAsync(request);
+    var msg = await resp.Content.ReadAsStringAsync();
+
+    if (resp.IsSuccessStatusCode)
+    {
+        Logger.LogInfo("ETxt", "WebhookRegister", "", "Webhook registration succeeded.");
+    }
+    else
+    {
+        Logger.LogWarning("ETxt", "WebhookRegister", "", $"Webhook registration failed: {resp.StatusCode} - {msg}");
+    }
 }
