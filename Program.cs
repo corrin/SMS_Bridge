@@ -9,6 +9,8 @@ using System.Text.Json;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Net.Http;
+using System.Reflection.PortableExecutable;
+using Microsoft.AspNetCore.DataProtection;
 
 // TODO: Enhancement.
 // On QUIT: Log all received messages in the dictionary
@@ -72,14 +74,14 @@ try
     builder.Services.AddSingleton<ISmsProvider>(services =>
     {
         var httpClient = new HttpClient();
-        var etxtApiKey = configuration["ETxt:ApiKey"]!;
-        var etxtApiSecret = configuration["ETxt:ApiSecret"]!;
+        var apiKey = configuration["SmsSettings:Providers:etxt:ApiKey"]!;
+        var apiSecret = configuration["SmsSettings:Providers:etxt:ApiSecret"]!;
 
         ISmsProvider provider = smsProvider switch
         {
             "justremotephone" => new JustRemotePhoneSmsProvider(),
             "diafaan" => new DiafaanSmsProvider(),
-            "etxt" => CreateETxtProvider(configuration),
+            "etxt" => CreateETxtProvider(configuration, fileConfiguration),
             _ => throw new InvalidOperationException($"Unsupported SMS provider: {smsProvider}")
         };
 
@@ -102,42 +104,22 @@ try
     var smsGatewayApi = app.MapGroup("/smsgateway")
         .AddEndpointFilter(async (context, next) =>
         {
-            var httpContext = context.HttpContext;
+            var http = context.HttpContext;
 
-            if (httpContext.Request.Host.Host.ToLower() is "localhost" or "127.0.0.1")
+            if (http.Request.Host.Host.ToLower() is not ("localhost" or "127.0.0.1"))
             {
-                // Allow localhost access without API key validation
-                return await next(context);
+                if (!http.Request.Headers.TryGetValue("X-API-Key", out var sent)
+                 || sent != apiKey)
+                {
+                    Logger.LogWarning("Security", "UnauthorizedAccess", "",
+                        $"Missing/invalid global API key from {http.Connection.RemoteIpAddress}");
+                    return Results.Unauthorized();
+                }
             }
 
-            //// Check if the API key header exists
-            //if (!httpContext.Request.Headers.TryGetValue("X-API-Key", out var requestApiKey))
-            //{
-            //    Logger.LogWarning(
-            //        provider: "Security",
-            //        eventType: "UnauthorizedAccess",
-            //        messageID: "",
-            //        details: $"Unauthorized access attempt from {httpContext.Connection.RemoteIpAddress}: Missing API Key"
-            //    );
-            //    return Results.Unauthorized();
-            //}
-
-            //// Validate the API key
-            //if (requestApiKey != apiKey)
-            //{
-            //    Logger.LogWarning(
-            //        provider: "Security",
-            //        eventType: "UnauthorizedAccess",
-            //        messageID: "",
-            //        details: $"Unauthorized access attempt from {httpContext.Connection.RemoteIpAddress}: Invalid API Key"
-            //    );
-            //    return Results.Unauthorized();
-            //}
-
-            // Proceed with the request
             return await next(context);
         });
-
+    
     // Send SMS using the configured provider
     smsGatewayApi.MapPost("/send-sms", async (SendSmsRequest request, SmsQueueService smsQueueService) =>
     {
@@ -314,6 +296,13 @@ try
         );
     }
 
+    if (true) // both dev and prod have webhook support
+    {
+        var webhooksApi = app.MapGroup("/smsgateway/webhooks");
+        Webhooks.RegisterWebhookEndpoints(webhooksApi, builder.Configuration);
+
+    }
+
     Logger.LogInfo(
         provider: "Startup",
         eventType: "Configuration",
@@ -336,20 +325,30 @@ catch (Exception ex)
     throw;
 }
 
-static ISmsProvider CreateETxtProvider(IConfiguration configuration)
+static ISmsProvider CreateETxtProvider(IConfiguration configuration, Configuration fileConfiguration)
 {
     var httpClient = new HttpClient();
-    var apiKey = configuration["ETxt:ApiKey"]!;
-    var apiSecret = configuration["ETxt:ApiSecret"]!;
-    var callbackBaseUrl = Environment.UserInteractive
-        ? "https://sms-bridge.au.ngrok.io"
-        : "https://office.massey-smiles.co.nz:5170";
+    var apiKey = fileConfiguration.GetRequiredProviderSetting("etxt", "API_KEY");
+    var apiSecret = fileConfiguration.GetRequiredProviderSetting("etxt", "API_SECRET");
+    var callbackKey = fileConfiguration.GetRequiredProviderSetting("etxt", "CALLBACK_KEY");
 
-    RegisterETxtWebhook(httpClient, apiKey, apiSecret, callbackBaseUrl).GetAwaiter().GetResult();
+
+    var callbackBaseUrl = Environment.UserInteractive
+     ? configuration["Hosting:AppBaseUrlDev"]!
+     : configuration["Hosting:AppBaseUrlProd"]!;
+
+
+    RegisterETxtWebhook(httpClient, apiKey: apiKey, apiSecret: apiSecret, callbackBaseUrl: callbackBaseUrl, callbackKey: callbackKey).GetAwaiter().GetResult();
     return new ETxtSmsProvider(httpClient, apiKey, apiSecret);
+
 }
 
-static async Task RegisterETxtWebhook(HttpClient httpClient, string apiKey, string apiSecret, string callbackBaseUrl)
+static async Task RegisterETxtWebhook(
+    HttpClient httpClient,
+    string apiKey,
+    string apiSecret,
+    string callbackBaseUrl,
+    string callbackKey)
 {
     var body = new
     {
@@ -360,7 +359,10 @@ static async Task RegisterETxtWebhook(HttpClient httpClient, string apiKey, stri
         template = "{\"replyId\":\"$moId\",\"messageId\":\"$mtId\",\"replyContent\":\"$moContent\",\"sourceAddress\":\"$sourceAddress\",\"destinationAddress\":\"$destinationAddress\",\"timestamp\":\"$receivedTimestamp\"}",
         read_timeout = 5000,
         retries = 3,
-        retry_delay = 30
+        retry_delay = 30,
+        headers = new Dictionary<string, string>
+        { ["X-eTXT-Callback-Key"] = callbackKey }
+
     };
 
     var request = new HttpRequestMessage(HttpMethod.Post, "https://api.etxtservice.co.nz/v1/webhooks/messages")
