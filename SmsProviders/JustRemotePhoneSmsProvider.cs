@@ -6,6 +6,8 @@ using System.Collections.Concurrent;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using System.Collections.Generic;
 using static System.Runtime.InteropServices.JavaScript.JSType;
+using System.Linq; // Added for LINQ methods
+using System.Threading.Tasks; // Added for Task
 
 namespace SMS_Bridge.SmsProviders
 {
@@ -14,7 +16,6 @@ namespace SMS_Bridge.SmsProviders
     public class JustRemotePhoneSmsProvider : ISmsProvider
     {
         public event Action<Guid, string[]> OnMessageTimeout = delegate { }; // Our custom timeout event
-        private static DateTime _lastZeroMessagesLogTime = DateTime.Now;  // Used to throttle the "No messages found" log
 
         private static Application _app = new Application("SMS Bridge");
         private static bool _isConnected = false;
@@ -23,16 +24,11 @@ namespace SMS_Bridge.SmsProviders
         private static readonly ConcurrentDictionary<Guid, Timer> _messageTimers = new();
         private const int MESSAGE_TIMEOUT_MS = 630000; // 10.5 minutes
         private static readonly ConcurrentDictionary<Guid, (SmsStatus Status, DateTime SentAt, DateTime StatusAt)> _messageStatuses = new();
-        private static readonly ConcurrentDictionary<Guid, (ReceiveSmsRequest Sms, DateTime ReceivedAt)> _receivedMessages = new();
-        private readonly object _saveLock = new object(); // for saving the received messages Dictionary
-        private static readonly string ReceivedMessagesDirectory = @"\\OPENDENTAL\OD Letters\msg_guids\";
-        private static readonly string ReceivedMessagesFilePath = Path.Combine(
-            ReceivedMessagesDirectory,
-            $"{Environment.MachineName}_received_sms.json"
-        );
+
         private readonly Timer _connectionHealthCheckTimer;
         private const int CONNECTION_CHECK_INTERVAL_MS = 3600000; // Check connection every hour
 
+        private readonly SmsReceivedHandler _smsReceivedHandler; // Instance of the new handler
 
 
         private void RefreshConnection(object? state)
@@ -63,6 +59,8 @@ namespace SMS_Bridge.SmsProviders
 
         public JustRemotePhoneSmsProvider()
         {
+            _smsReceivedHandler = new SmsReceivedHandler("JustRemotePhone"); // Initialize the handler
+
             _app.ApplicationStateChanged += OnApplicationStateChanged;
             _app.Phone.SMSSendResult += OnSMSSendResult;
             _app.Phone.SMSReceived += OnSMSReceived;
@@ -72,93 +70,12 @@ namespace SMS_Bridge.SmsProviders
             _app.BeginConnect(true);
             _connectionHealthCheckTimer = new Timer(RefreshConnection, null,
                 CONNECTION_CHECK_INTERVAL_MS, CONNECTION_CHECK_INTERVAL_MS);
-            LoadReceivedMessagesFromDisk();
+            // Removed LoadReceivedMessagesFromDisk();
         }
 
 
-        private void SaveReceivedMessagesToDisk()
-        {
-            lock (_saveLock)
-            {
-                try
-                {
-                    
-                    // Extract only the `Sms` objects for saving
-                    var messages = _receivedMessages.Values
-                        .Select(entry => entry.Sms)
-                        .ToList();
-
-                    var json = System.Text.Json.JsonSerializer.Serialize(messages, new System.Text.Json.JsonSerializerOptions
-                    {
-                        WriteIndented = true
-                    });
-
-                    File.WriteAllText(ReceivedMessagesFilePath, json);
-
-                    Logger.LogInfo(
-                        provider: "SMS_Bridge",
-                        eventType: "SaveReceivedMessages",
-                        messageID: "",
-                        details: $"Saved {_receivedMessages.Count} messages to {ReceivedMessagesFilePath}."
-                    );
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogError(
-                        provider: "SMS_Bridge",
-                        eventType: "SaveReceivedMessagesFailed",
-                        messageID: "",
-                        details: $"Failed to save received messages: {ex.Message}"
-                    );
-                }
-            }
-        }
-
-        private void LoadReceivedMessagesFromDisk()
-        {
-            try
-            {
-                if (File.Exists(ReceivedMessagesFilePath))
-                {
-                    var json = File.ReadAllText(ReceivedMessagesFilePath);
-                    var messages = System.Text.Json.JsonSerializer.Deserialize<List<ReceiveSmsRequest>>(json);
-
-                    if (messages != null)
-                    {
-                        foreach (var message in messages)
-                        {
-                            _receivedMessages[message.MessageID] = (message, message.ReceivedAt);
-                        }
-
-                        Logger.LogInfo(
-                            provider: "SMS_Bridge",
-                            eventType: "LoadReceivedMessages",
-                            messageID: "",
-                            details: $"Loaded {messages.Count} messages from {ReceivedMessagesFilePath}."
-                        );
-                    }
-                }
-                else
-                {
-                    Logger.LogInfo(
-                        provider: "SMS_Bridge",
-                        eventType: "LoadReceivedMessages",
-                        messageID: "",
-                        details: $"No saved messages found. Starting fresh at {ReceivedMessagesFilePath}."
-                    );
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(
-                    provider: "SMS_Bridge",
-                    eventType: "LoadReceivedMessagesFailed",
-                    messageID: "",
-                    details: $"Failed to load received messages: {ex.Message}"
-                );
-            }
-        }
-
+        // Removed SaveReceivedMessagesToDisk()
+        // Removed LoadReceivedMessagesFromDisk()
 
 
         private void OnApplicationStateChanged(ApplicationState newState, ApplicationState oldState)
@@ -269,25 +186,8 @@ namespace SMS_Bridge.SmsProviders
         }
         private void OnSMSReceived(string number, string contactLabel, string text)
         {
-            var messageID = Guid.NewGuid(); // Generate a new ID for logging and tracking
-            // Log the incoming message
-            Logger.LogInfo(
-                provider: "JustRemotePhone",
-                eventType: "SMSReceived",
-                messageID: messageID.ToString(), 
-                details: $"From: {number}, Contact: {contactLabel}, Message: {text}"
-            );
-
-            // You might want to add additional logic here, such as storing the message in your database or triggering other processes.
-            var receivedSms = new ReceiveSmsRequest(
-                MessageID: messageID,
-                FromNumber: number,
-                MessageText: text,
-                ReceivedAt: DateTime.Now
-            );
-            _receivedMessages.TryAdd(messageID, (receivedSms, DateTime.Now));
-
-            SaveReceivedMessagesToDisk();
+            // Delegate handling to the new handler
+            _smsReceivedHandler.HandleSmsReceived(number, contactLabel, text);
         }
 
 
@@ -306,7 +206,7 @@ namespace SMS_Bridge.SmsProviders
 
             // Connection check.
             // I've added the log because I think this is redundant and I'm going to monitor the log to see if it ever happens
-            if (!_isConnected)            
+            if (!_isConnected)
             {
                 Logger.LogInfo(
                     provider: "JustRemotePhone",
@@ -379,44 +279,8 @@ namespace SMS_Bridge.SmsProviders
 
         public Task<IEnumerable<ReceiveSmsRequest>> GetReceivedMessages()
         {
-            var messages = _receivedMessages.Values
-                .Select(m => m.Sms)
-                .ToList(); // Materialize for logging
-
-            if (messages.Count == 0)
-            {
-
-                if ((DateTime.Now - _lastZeroMessagesLogTime).TotalMinutes > 60)
-                {
-                    Logger.LogInfo(
-                        provider: "SMS_Bridge",
-                        eventType: "NoMessages",
-                        messageID: "",
-                        details: "No messages found for a whole hour."
-                    );
-                    _lastZeroMessagesLogTime = DateTime.Now;
-                }
-            } else {
-                Logger.LogInfo(
-                    provider: "SMS_Bridge",
-                    eventType: "MessagesFound",
-                    messageID: "",
-                    details: $"Found {messages.Count} messages in queue."
-                );
-
-                // Dump the full contents of the messages
-                foreach (var message in messages)
-                {
-                    Logger.LogInfo(
-                        provider: "SMS_Bridge",
-                        eventType: "MessageDump",
-                        messageID: message.MessageID.ToString(),
-                        details: $"Full Message Details: {System.Text.Json.JsonSerializer.Serialize(message)}"
-                    );
-                }
-            }
-
-            return Task.FromResult((IEnumerable<ReceiveSmsRequest>)messages);
+            // Delegate to the new handler
+            return _smsReceivedHandler.GetReceivedMessages();
         }
 
         public Task<IEnumerable<MessageStatusRecord>> GetRecentMessageStatuses()
@@ -438,28 +302,8 @@ namespace SMS_Bridge.SmsProviders
 
         public Task<DeleteMessageResponse> DeleteReceivedMessage(Guid messageId)
         {
-            bool isRemoved = _receivedMessages.TryRemove(messageId, out _);
-
-            var response = new DeleteMessageResponse(
-                MessageID: messageId.ToString(),
-                Deleted: isRemoved,
-                DeleteFeedback: isRemoved ? "Message deleted successfully" : "Message not found"
-            );
-
-            Logger.LogInfo(
-                provider: "SMS_Bridge",
-                eventType: isRemoved ? "MessageDeleted" : "MessageDeleteFailed",
-                messageID: messageId.ToString(),
-                details: isRemoved ? "Message successfully removed from the queue and saved to disk." : "Attempt to delete message failed. Message not found."
-            );
-
-                        if (isRemoved)
-            {
-                // Save the updated dictionary to disk
-                SaveReceivedMessagesToDisk();
-            }
-
-            return Task.FromResult(response);
+            // Delegate to the new handler
+            return _smsReceivedHandler.DeleteReceivedMessage(messageId);
         }
 
 

@@ -11,10 +11,13 @@ using System.Text;
 using System.Net.Http;
 using System.Reflection.PortableExecutable;
 using Microsoft.AspNetCore.DataProtection;
+using System.Net;
+using System.Linq;
+using System.Text.Json.Serialization;
 
 // TODO: Enhancement.
 // On QUIT: Log all received messages in the dictionary
-// And reload that dictionary on startup
+// And reload that dictionary on dictionary on startup
 
 var appPort = 5170;
 var builder = WebApplication.CreateSlimBuilder(args);
@@ -81,7 +84,7 @@ try
         {
             "justremotephone" => new JustRemotePhoneSmsProvider(),
             "diafaan" => new DiafaanSmsProvider(),
-            "etxt" => CreateETxtProvider(configuration, fileConfiguration),
+            "etxt" => CreateETxtProvider(configuration, fileConfiguration, httpClient, apiKey, apiSecret),
             _ => throw new InvalidOperationException($"Unsupported SMS provider: {smsProvider}")
         };
 
@@ -325,65 +328,9 @@ catch (Exception ex)
     throw;
 }
 
-static ISmsProvider CreateETxtProvider(IConfiguration configuration, Configuration fileConfiguration)
+
+// Method to create ETxtSmsProvider
+static ETxtSmsProvider CreateETxtProvider(IConfiguration configuration, Configuration fileConfiguration, HttpClient httpClient, string apiKey, string apiSecret)
 {
-    var httpClient = new HttpClient();
-    var apiKey = fileConfiguration.GetRequiredProviderSetting("etxt", "API_KEY");
-    var apiSecret = fileConfiguration.GetRequiredProviderSetting("etxt", "API_SECRET");
-    var callbackKey = fileConfiguration.GetRequiredProviderSetting("etxt", "CALLBACK_KEY");
-
-
-    var callbackBaseUrl = Environment.UserInteractive
-     ? configuration["Hosting:AppBaseUrlDev"]!
-     : configuration["Hosting:AppBaseUrlProd"]!;
-
-
-    RegisterETxtWebhook(httpClient, apiKey: apiKey, apiSecret: apiSecret, callbackBaseUrl: callbackBaseUrl, callbackKey: callbackKey).GetAwaiter().GetResult();
-    return new ETxtSmsProvider(httpClient, apiKey, apiSecret);
-
-}
-
-static async Task RegisterETxtWebhook(
-    HttpClient httpClient,
-    string apiKey,
-    string apiSecret,
-    string callbackBaseUrl,
-    string callbackKey)
-{
-    var body = new
-    {
-        url = $"{callbackBaseUrl}/smsgateway/receive-reply",
-        method = "POST",
-        encoding = "JSON",
-        events = new[] { "RECEIVED_SMS" },
-        template = "{\"replyId\":\"$moId\",\"messageId\":\"$mtId\",\"replyContent\":\"$moContent\",\"sourceAddress\":\"$sourceAddress\",\"destinationAddress\":\"$destinationAddress\",\"timestamp\":\"$receivedTimestamp\"}",
-        read_timeout = 5000,
-        retries = 3,
-        retry_delay = 30,
-        headers = new Dictionary<string, string>
-        { ["X-eTXT-Callback-Key"] = callbackKey }
-
-    };
-
-    var request = new HttpRequestMessage(HttpMethod.Post, "https://api.etxtservice.co.nz/v1/webhooks/messages")
-    {
-        Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
-    };
-
-    request.Headers.Authorization = new AuthenticationHeaderValue(
-        "Basic",
-        Convert.ToBase64String(Encoding.UTF8.GetBytes($"{apiKey}:{apiSecret}"))
-    );
-
-    var resp = await httpClient.SendAsync(request);
-    var msg = await resp.Content.ReadAsStringAsync();
-
-    if (resp.IsSuccessStatusCode)
-    {
-        Logger.LogInfo("ETxt", "WebhookRegister", "", "Webhook registration succeeded.");
-    }
-    else
-    {
-        Logger.LogWarning("ETxt", "WebhookRegister", "", $"Webhook registration failed: {resp.StatusCode} - {msg}");
-    }
+    return new ETxtSmsProvider(httpClient, apiKey, apiSecret, configuration, fileConfiguration);
 }
