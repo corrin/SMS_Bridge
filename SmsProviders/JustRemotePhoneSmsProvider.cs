@@ -59,7 +59,7 @@ namespace SMS_Bridge.SmsProviders
 
         public JustRemotePhoneSmsProvider()
         {
-            _smsReceivedHandler = new SmsReceivedHandler("JustRemotePhone"); // Initialize the handler
+            _smsReceivedHandler = new SmsReceivedHandler(SmsProviderType.JustRemotePhone); // Initialize the handler
 
             _app.ApplicationStateChanged += OnApplicationStateChanged;
             _app.Phone.SMSSendResult += OnSMSSendResult;

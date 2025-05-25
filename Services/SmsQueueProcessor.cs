@@ -46,7 +46,7 @@ namespace SMS_Bridge.Services
             Logger.LogInfo(
                 provider: _providerType,
                 eventType: "MessageQueued",
-                messageID: SMSBridgeIDId.ToString(),
+                messageID: SMSBridgeID.ToString(),
                 details: $"SMS queued for {request.PhoneNumber}");
 
             return SMSBridgeID;

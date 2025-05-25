@@ -132,7 +132,7 @@ try
         });
     
     // Send SMS using the configured provider
-    smsGatewayApi.MapPost("/send-sms", async (SendSmsRequest request, SmsQueueService smsQueueService) =>
+    smsGatewayApi.MapPost("/send-sms", (SendSmsRequest request, SmsQueueService smsQueueService) =>
     {
         try
         {

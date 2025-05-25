@@ -18,7 +18,7 @@
 
         public static void RegisterTestingEndpoints(RouteGroupBuilder testingGatewayAPI, IConfiguration configuration)
         {
-            testingGatewayAPI.MapGet("/send-sms", async (IServiceProvider services) =>
+            testingGatewayAPI.MapGet("/send-sms", (IServiceProvider services) =>
             {
                 try
                 {

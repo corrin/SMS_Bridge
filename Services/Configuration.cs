@@ -159,7 +159,7 @@ namespace SMS_Bridge.Services
                 return value;
             }
 
-            return null;
+            throw new Exception($"Provider setting '{provider}_{setting}' not found in {ConfigFilePath}");
         }
 
         // Get a required setting for a provider - throws exception if missing

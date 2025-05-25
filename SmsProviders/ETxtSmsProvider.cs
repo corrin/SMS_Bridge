@@ -109,6 +109,10 @@ namespace SMS_Bridge.SmsProviders
                 return SmsStatus.Unknown;
 
             var st = await resp.Content.ReadFromJsonAsync<ETxtStatusResponse>();
+            if (st == null || string.IsNullOrEmpty(st.Status))
+            {
+                throw new InvalidOperationException("Invalid response from eTXT API: status is null or empty.");
+            }
             return st.Status switch
             {
                 "delivered" => SmsStatus.Delivered,
