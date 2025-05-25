@@ -51,7 +51,7 @@ namespace SMS_Bridge.SmsProviders
 
         public ProviderMessageId? GetProviderMessageID(SmsBridgeId smsBridgeId)
         {
-            // Since this is a stub implementation, we'll just throw an exception
+            // This provider is not implemented yet
             throw new NotImplementedException("Diafaan SMS provider is not implemented yet.");
         }
 

@@ -6,8 +6,8 @@ using System.Collections.Concurrent;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
 using System.Collections.Generic;
 using static System.Runtime.InteropServices.JavaScript.JSType;
-using System.Linq; // Added for LINQ methods
-using System.Threading.Tasks; // Added for Task
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace SMS_Bridge.SmsProviders
 {
@@ -15,8 +15,8 @@ namespace SMS_Bridge.SmsProviders
 
     public class JustRemotePhoneSmsProvider : ISmsProvider
     {
-        // Update event signature to use SmsBridgeId
-        public event Action<SmsBridgeId, string[]> OnMessageTimeout = delegate { }; // Our custom timeout event
+        // Event that fires when a message times out waiting for delivery confirmation
+        public event Action<SmsBridgeId, string[]> OnMessageTimeout = delegate { };
 
         private static Application _app = new Application("SMS Bridge");
         private static bool _isConnected = false;
@@ -31,7 +31,7 @@ namespace SMS_Bridge.SmsProviders
         private readonly Timer _connectionHealthCheckTimer;
         private const int CONNECTION_CHECK_INTERVAL_MS = 3600000; // Check connection every hour
 
-        private readonly SmsReceivedHandler _smsReceivedHandler; // Instance of the new handler
+        private readonly SmsReceivedHandler _smsReceivedHandler;
 
 
         private void RefreshConnection(object? state)
@@ -44,7 +44,7 @@ namespace SMS_Bridge.SmsProviders
                     details: $"Performing periodic connection refresh, current state: {_isConnected}"
                 );
 
-                // Force a reconnection regardless of current state
+                // Always reconnect even if we think we're already connected to ensure reliability
                 _app.BeginConnect(true);
             }
             catch (Exception ex)
@@ -60,23 +60,20 @@ namespace SMS_Bridge.SmsProviders
 
         public JustRemotePhoneSmsProvider()
         {
-            _smsReceivedHandler = new SmsReceivedHandler(SmsProviderType.JustRemotePhone); // Initialize the handler
+            _smsReceivedHandler = new SmsReceivedHandler(SmsProviderType.JustRemotePhone);
 
             _app.ApplicationStateChanged += OnApplicationStateChanged;
             _app.Phone.SMSSendResult += OnSMSSendResult;
             _app.Phone.SMSReceived += OnSMSReceived;
 
-            OnMessageTimeout += HandleMessageTimeout; // Setup our own custom timeout handler
+            OnMessageTimeout += HandleMessageTimeout;
 
             _app.BeginConnect(true);
             _connectionHealthCheckTimer = new Timer(RefreshConnection, null,
                 CONNECTION_CHECK_INTERVAL_MS, CONNECTION_CHECK_INTERVAL_MS);
-            // Removed LoadReceivedMessagesFromDisk();
         }
 
 
-        // Removed SaveReceivedMessagesToDisk()
-        // Removed LoadReceivedMessagesFromDisk()
 
 
         private void OnApplicationStateChanged(ApplicationState newState, ApplicationState oldState)
@@ -111,7 +108,6 @@ namespace SMS_Bridge.SmsProviders
             return false;
         }
 
-        // Update method signature to use SmsBridgeId
         private void SetupMessageTimeout(SmsBridgeId smsBridgeId, string[] numbers)
         {
             var timer = new Timer(_ =>
@@ -140,7 +136,7 @@ namespace SMS_Bridge.SmsProviders
                     providerMessageID: existing.ProviderMessageID, 
                     details: $"Message timed out after {timeoutInterval.TotalMinutes:F1} minutes. Numbers: {string.Join(",", numbers)}"
                 );
-                // Update the status while keeping the original ProviderMessageID and SentAt time
+                // Preserve original metadata while updating status
                 _messageStatuses[smsBridgeId] = (existing.ProviderMessageID, SmsStatus.TimedOut, existing.SentAt, DateTime.Now);
             }
         }
@@ -148,10 +144,10 @@ namespace SMS_Bridge.SmsProviders
 
         private void OnSMSSendResult(Guid providerMessageIdGuid, string[] numbers, SMSSentResult[] results)
         {
-            // Create a ProviderMessageId from the Guid (necessary for interfacing with external library)
+            // Convert raw Guid to our typed ProviderMessageId for consistency across the codebase
             var providerMessageId = new ProviderMessageId(providerMessageIdGuid);
             
-            // Find the SMSBridgeID associated with this providerMessageId
+            // Look up which SmsBridgeId corresponds to this provider message
             var entry = _messageStatuses.FirstOrDefault(e => e.Value.ProviderMessageID.Value == providerMessageIdGuid);
 
             if (entry.Key != default) // Check if an entry was found (default for SmsBridgeId is Guid.Empty)
@@ -166,7 +162,7 @@ namespace SMS_Bridge.SmsProviders
                     _ => SmsStatus.Unknown
                 };
 
-                // Update the status while keeping the original ProviderMessageID and SentAt time
+                // Preserve original metadata while updating status
                 _messageStatuses[smsBridgeId] = (existing.ProviderMessageID, status, existing.SentAt, now);
 
                 var deliveryInterval = now - existing.SentAt;
@@ -181,7 +177,7 @@ namespace SMS_Bridge.SmsProviders
                     );
                 }
 
-                // Remove the timer using the SMSBridgeID
+                // Clean up the timeout timer since we received a status
                 if (_messageTimers.TryRemove(smsBridgeId, out var timer))
                 {
                     timer.Dispose();
@@ -201,12 +197,10 @@ namespace SMS_Bridge.SmsProviders
         }
         private void OnSMSReceived(string number, string contactLabel, string text)
         {
-            // Delegate handling to the new handler
             _smsReceivedHandler.HandleSmsReceived(number, contactLabel, text);
         }
 
 
-        // Update method signature and return type to use SmsBridgeId
         public async Task<(IResult Result, SmsBridgeId smsBridgeId)> SendSms(SendSmsRequest request, SmsBridgeId smsBridgeId)
         {
             // Validation check
@@ -259,9 +253,9 @@ namespace SMS_Bridge.SmsProviders
                 );
 
                 _app.Phone.SendSMS(numbers, text, out providerMessageId);
-                // Use SMSBridgeID (wrapped in SmsBridgeId) as the key and store providerMessageId (wrapped in ProviderMessageId) in the value
+                // Store the mapping between our internal ID and the provider's ID for future reference
                 _messageStatuses[smsBridgeId] = (new ProviderMessageId(providerMessageId), SmsStatus.Pending, DateTime.Now, DateTime.MinValue);
-                SetupMessageTimeout(smsBridgeId, numbers); // Use SmsBridgeId for timeout tracking
+                SetupMessageTimeout(smsBridgeId, numbers);
 
                 Logger.LogInfo(
                     provider: SmsProviderType.JustRemotePhone,
@@ -300,7 +294,6 @@ namespace SMS_Bridge.SmsProviders
 
         public Task<IEnumerable<ReceiveSmsRequest>> GetReceivedMessages()
         {
-            // Delegate to the new handler
             return _smsReceivedHandler.GetReceivedMessages();
         }
 
@@ -322,10 +315,8 @@ namespace SMS_Bridge.SmsProviders
 
         }
 
-        // Update method signature to use SmsBridgeId
         public Task<DeleteMessageResponse> DeleteReceivedMessage(SmsBridgeId smsBridgeId)
         {
-            // Delegate to the new handler, passing the Guid value
             return _smsReceivedHandler.DeleteReceivedMessage(smsBridgeId);
         }
 

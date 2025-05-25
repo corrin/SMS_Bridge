@@ -8,7 +8,7 @@ using System.Linq;
 using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
-using System.Diagnostics.Tracing; // Added for Task return types
+using System.Diagnostics.Tracing;
 
 namespace SMS_Bridge.Services
 {
@@ -17,7 +17,7 @@ namespace SMS_Bridge.Services
         private readonly SmsProviderType _SMSprovider; 
         private static DateTime _lastZeroMessagesLogTime = DateTime.Now;  // Used to throttle the "No messages found" log
         private static readonly ConcurrentDictionary<SmsBridgeId, (ReceiveSmsRequest Sms, DateTime ReceivedAt)> _receivedMessages = new();
-        private readonly object _saveLock = new object(); // for saving the received messages Dictionary
+        private readonly object _saveLock = new object(); // Prevents concurrent file access during save operations
         private static readonly string ReceivedMessagesDirectory = @"\\OPENDENTAL\OD Letters\msg_guids\";
         private static readonly string ReceivedMessagesFilePath = Path.Combine(
             ReceivedMessagesDirectory,
@@ -34,7 +34,6 @@ namespace SMS_Bridge.Services
         {
             // FIXME: Set ProviderMessageID to the value from the provider
             var smsBridgeId = new SmsBridgeId(Guid.NewGuid());
-            // Log the incoming message
             Logger.LogInfo(
                 provider: _SMSprovider,
                 eventType: "SMSReceived",
@@ -60,10 +59,10 @@ namespace SMS_Bridge.Services
             {
                 try
                 {
-                    // Ensure the directory exists
+                    // Create directory if it doesn't exist to prevent file write errors
                     Directory.CreateDirectory(ReceivedMessagesDirectory);
 
-                    // Extract only the `Sms` objects for saving
+                    // Only save the message data, not the timestamps
                     var messages = _receivedMessages.Values
                         .Select(entry => entry.Sms)
                         .ToList();
@@ -167,21 +166,21 @@ namespace SMS_Bridge.Services
             else
             {
                 Logger.LogInfo(
-                    provider: _SMSprovider, // I'm an idiot who can't write comments.  So I just write what the code does as the comment
+                    provider: _SMSprovider,
                     eventType: "MessagesFound",
                     SMSBridgeID: default,
                     providerMessageID: default,
                     details: $"Found {_receivedMessages.Count} messages in queue."
                 );
 
-                // Dump the full contents of the messages
+                // Log complete message details for debugging purposes
                 foreach (var message in messages)
                 {
                     Logger.LogInfo(  // is this SMSBridgeID or ProviderMessageID
                         provider: _SMSprovider,
                         eventType: "MessageDump",
-                        SMSBridgeID: message.MessageID,
-                        providerMessageID: default, // Provider message ID is not available here
+                        SMSBridgeID: message.MessageID,  // Is this a bug? Has provider been assigned to SMSBridgeID?
+                        providerMessageID: default, // BUG.  You always have a provider Message ID on receive.
                         details: $"Full Message Details: {JsonSerializer.Serialize(message)}"
                     );
                 }
@@ -208,7 +207,7 @@ namespace SMS_Bridge.Services
 
            if (isRemoved)
            {
-               // Save the updated dictionary to disk
+               // Persist changes to ensure deleted messages stay deleted after restart
                SaveReceivedMessagesToDisk();
            }
 

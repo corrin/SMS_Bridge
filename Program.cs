@@ -23,7 +23,6 @@ var appPort = 5170;
 var builder = WebApplication.CreateSlimBuilder(args);
 builder.WebHost.UseUrls($"http://*:{appPort}");  // Explicitly sets the port so it can be deployed
 
-// Your existing code starts here
 Console.WriteLine("Starting SMS_Bridge application...");
 
 if (Environment.UserInteractive == false) // Checks if running as a service
@@ -44,14 +43,13 @@ try
 {
     Logger.Initialize();
 
-    // Load and validate critical configuration
+    // Configuration setup and validation
     var configuration = builder.Configuration;
     configuration.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
 
     var smsProvider = configuration["SmsSettings:Provider"]?.ToLower() ??
         throw new InvalidOperationException("SMS provider must be configured in appsettings.json");
 
-    // Parse the provider type from configuration
     if (!Enum.TryParse(smsProvider, true, out configuredProviderType))
     {
         configuredProviderType = SmsProviderType.BuggyCodeNeedsFixing;
@@ -60,12 +58,10 @@ try
     Configuration fileConfiguration = new Configuration();
     var apiKey = fileConfiguration.GetApiKey();
 
-    // Validate production machines configuration
     var productionMachines = configuration.GetSection("SmsSettings:ProductionMachines")
         .Get<string[]>() ?? Array.Empty<string>();
     var isDebugMode = !productionMachines.Contains(Environment.MachineName);
 
-    // Validate test mode configuration if in debug mode
     if (isDebugMode && string.IsNullOrEmpty(configuration["SmsSettings:TestingPhoneNumber"]))
     {
         Logger.LogWarning(
@@ -76,13 +72,12 @@ try
         );
     }
 
-    // Configure JSON serialization
     builder.Services.ConfigureHttpJsonOptions(options =>
     {
         options.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonSerializerContext.Default);
     });
 
-    // Register SMS provider
+    // Initialize the appropriate SMS provider based on configuration
     builder.Services.AddSingleton<ISmsProvider>(services =>
     {
         var httpClient = new HttpClient();
@@ -108,12 +103,11 @@ try
         return provider;
     });
 
-    // Register services
     builder.Services.AddSingleton<SmsQueueService>();
 
     var app = builder.Build();
 
-    // API Key validation middleware
+    // Security middleware to validate API keys for non-localhost requests
     var smsGatewayApi = app.MapGroup("/smsgateway")
         .AddEndpointFilter(async (context, next) =>
         {
@@ -137,7 +131,7 @@ try
             return await next(context);
         });
     
-    // Send SMS using the configured provider
+    // Endpoint for sending SMS messages
     smsGatewayApi.MapPost("/send-sms", (SendSmsRequest request, SmsQueueService smsQueueService) =>
     {
         try
@@ -349,7 +343,7 @@ catch (Exception ex)
 }
 
 
-// Method to create ETxtSmsProvider
+// Factory method to create ETxtSmsProvider with required dependencies
 static ETxtSmsProvider CreateETxtProvider(IConfiguration configuration, Configuration fileConfiguration, HttpClient httpClient, string apiKey, string apiSecret)
 {
     return new ETxtSmsProvider(httpClient, apiKey, apiSecret, configuration, fileConfiguration);

@@ -67,7 +67,7 @@ namespace SMS_Bridge.Services
                         throw new InvalidOperationException($"SMS send failed with status {statusCodeResult.StatusCode}");
                     }
 
-                    // Get the provider message ID from the SMS provider
+                    // Retrieve the mapping to ensure we can track message status
                     var providerMessageId = _provider.GetProviderMessageID(smsBridgeId);
                     if (providerMessageId != null)
                     {

@@ -64,7 +64,7 @@
                         var response = await provider.SendSms(testRequest, smsBridgeId);
                         responses.Add(response);
                         smsBridgeIDs.Add(smsBridgeId); // Add SMSBridgeID to list
-                        // We need to get the provider message ID from the SMS provider
+                        // Retrieve provider message ID to track message status
                         var providerMessageId = provider.GetProviderMessageID(smsBridgeId);
                         if (providerMessageId != null)
                         {
@@ -105,7 +105,7 @@
                     var smsBridgeId = smsQueueService.QueueSms(testRequest);
                     var status = SmsStatus.Pending;
 
-                    await Task.Delay(1000); // Initial delay
+                    await Task.Delay(1000); // Wait for message to be processed before checking status
 
                     // Check up to 20 times with a 1-second delay between each check
                     for (int i = 0; i < 20; i++)

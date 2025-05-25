@@ -1,6 +1,6 @@
 ﻿﻿using SMS_Bridge.Models;
 using SMS_Bridge.SmsProviders;
-using SMS_Bridge.Services; // Added using for SmsReceivedHandler
+using SMS_Bridge.Services;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -18,14 +18,14 @@ namespace SMS_Bridge.SmsProviders
 {
     public class ETxtSmsProvider : ISmsProvider
     {
-        // Parity event, not used for eTXT
+        // Event included for interface parity, not needed for eTXT implementation
         public event Action<Guid, string[]> OnMessageTimeout = delegate { };
 
         private readonly HttpClient _httpClient;
         private readonly string _apiKey;
         private readonly string _apiSecret;
         private const string BaseUrl = "https://api.etxtservice.co.nz/v1";
-        private readonly SmsReceivedHandler _smsReceivedHandler; // Instance of the new handler
+        private readonly SmsReceivedHandler _smsReceivedHandler;
         private readonly IConfiguration _configuration;
         private readonly Configuration _fileConfiguration;
         private readonly ConcurrentDictionary<SmsBridgeId, ProviderMessageId> _smsBridgeToProviderId = new();
@@ -41,7 +41,7 @@ namespace SMS_Bridge.SmsProviders
             _fileConfiguration = fileConfiguration ?? throw new ArgumentNullException(nameof(fileConfiguration));
 
 
-            // Ensure eTXT webhook is registered on startup
+            // Register webhook on startup to ensure SMS replies can be received
             EnsureETxtWebhook(_configuration, _fileConfiguration).GetAwaiter().GetResult();
         }
 
@@ -78,13 +78,12 @@ namespace SMS_Bridge.SmsProviders
                 if (data?.Messages != null && data.Messages.Count > 0)
                 {
                     var providerMessageId = new ProviderMessageId(Guid.Parse(data.Messages[0].MessageId));
-                    // Store the mapping between SmsBridgeId and ProviderMessageId
                     _smsBridgeToProviderId[smsBridgeId] = providerMessageId;
                     return (Ok(), smsBridgeId);
                 }
                 else
                 {
-                    // Handle unexpected response format
+                    // API returned success but with invalid data structure
                     var err = "Unexpected response format from eTXT API.";
                     return (Problem(detail: err), smsBridgeId);
                 }
@@ -104,7 +103,6 @@ namespace SMS_Bridge.SmsProviders
             return GetStatusProviderID(providerMessageId, smsBridgeId);
         }
 
-        // Implementation of the interface method
         public ProviderMessageId? GetProviderMessageID(SmsBridgeId smsBridgeId)
         {
             if (_smsBridgeToProviderId.TryGetValue(smsBridgeId, out var providerMessageId))
@@ -112,13 +110,11 @@ namespace SMS_Bridge.SmsProviders
                 return providerMessageId;
             }
             
-            // If not found, throw an exception
             throw new KeyNotFoundException($"No provider message ID found for SMS bridge ID: {smsBridgeId}");
         }
 
         private async Task<SmsStatus> GetStatusSMSID(SmsBridgeId smsBridgeId)
         {
-            // Use the GetProviderMessageID method to get the provider message ID
             var providerMessageId = GetProviderMessageID(smsBridgeId);
             return await GetStatusProviderID(providerMessageId, smsBridgeId);
         }
@@ -156,7 +152,6 @@ namespace SMS_Bridge.SmsProviders
 
         public Task<IEnumerable<ReceiveSmsRequest>> GetReceivedMessages()
         {
-            // Delegate to the new handler
             return _smsReceivedHandler.GetReceivedMessages();
         }
 
@@ -169,7 +164,6 @@ namespace SMS_Bridge.SmsProviders
 
         public Task<DeleteMessageResponse> DeleteReceivedMessage(SmsBridgeId smsBridgeId)
         {
-            // Delegate to the new handler
             return _smsReceivedHandler.DeleteReceivedMessage(smsBridgeId);
         }
 
@@ -179,8 +173,7 @@ namespace SMS_Bridge.SmsProviders
             req.Headers.Authorization = new AuthenticationHeaderValue("Basic", creds);
         }
 
-        // Placeholder method to handle incoming webhooks from eTXT
-        // The actual implementation will depend on the eTXT webhook payload structure
+        // Processes incoming webhook notifications from eTXT for received SMS messages
         public IResult HandleInboundWebhook(ETxtWebhookRequest request)
         {
             if (request == null)
@@ -196,25 +189,22 @@ namespace SMS_Bridge.SmsProviders
 
             if (string.IsNullOrEmpty(request.SourceAddress))
             {
-                // Log a warning or error if SourceAddress is null or empty
                 Logger.LogWarning(provider: SmsProviderType.ETxt, eventType: "HandleInboundWebhook", details: "Received ETxt webhook request with null or empty SourceAddress.");
                 return BadRequest("SourceAddress is missing."); // Indicate bad request
             }
 
             if (request.ReplyContent == null)
             {
-                // Log error and return BadRequest if ReplyContent is null
                 Logger.LogError(provider: SmsProviderType.ETxt, eventType: "HandleInboundWebhook", details: "Received ETxt webhook request with null ReplyContent.");
                 return BadRequest("ReplyContent is missing.");
             }
 
-            // Extract relevant information and pass it to the handler
             _smsReceivedHandler.HandleSmsReceived(request.SourceAddress, "", (string)request.ReplyContent); // ContactLabel is not available here, pass empty string.
 
-            return Ok(); // Indicate successful processing
+            return Ok();
         }
 
-        // Webhook registration logic moved from Program.cs
+        // Ensures the eTXT webhook is properly registered to receive SMS replies
         private async Task EnsureETxtWebhook(
             IConfiguration configuration,
             Configuration fileConfiguration)
@@ -313,7 +303,7 @@ namespace SMS_Bridge.SmsProviders
             }
         }
 
-        // Helper method for comparing webhooks moved from Program.cs
+        // Determines if an existing webhook needs to be updated based on desired configuration
         private bool WebhookNeedsUpdate(ETxtWebhook existing, dynamic desired)
         {
             // Compare properties based on the Python example logic
@@ -335,7 +325,7 @@ namespace SMS_Bridge.SmsProviders
                 return true;
             }
 
-            // Compare headers case-insensitively
+            // Headers must be compared case-insensitively to avoid unnecessary updates
             var existingHeaders = existing.Headers?.ToDictionary(h => h.Key.ToLower(), h => h.Value) ?? new Dictionary<string, string>();
             var desiredHeaders = ((IDictionary<string, string>)desired.headers).ToDictionary(h => h.Key.ToLower(), h => h.Value);
 
@@ -356,7 +346,7 @@ namespace SMS_Bridge.SmsProviders
         }
     }
 
-    // Response models
+    // Models for eTXT API responses
     public class ETxtSendResponse
     {
         public List<ETxtMessageResponse>? Messages { get; set; }
@@ -376,8 +366,7 @@ namespace SMS_Bridge.SmsProviders
         public string? Status { get; set; }
     }
 
-    // Placeholder model for incoming eTXT webhook requests
-    // This needs to be updated based on the actual eTXT webhook payload
+    // Model for incoming eTXT webhook requests that deliver SMS replies
     public class ETxtWebhookRequest
     {
         [JsonPropertyName("replyId")]
@@ -399,14 +388,14 @@ namespace SMS_Bridge.SmsProviders
         public string? Timestamp { get; set; }
     }
 
-    // Helper class for deserializing webhook list response moved from Program.cs
+    // Helper class for deserializing webhook list response from eTXT API
     public class ETxtWebhookListResponse
     {
         [JsonPropertyName("pageData")]
         public List<ETxtWebhook>? PageData { get; set; }
     }
 
-    // Helper class for deserializing individual webhook details moved from Program.cs
+    // Helper class for deserializing individual webhook configuration details
     public class ETxtWebhook
     {
         [JsonPropertyName("id")]
