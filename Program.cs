@@ -21,6 +21,11 @@ using System.Text.Json.Serialization;
 
 var appPort = 5170;
 var builder = WebApplication.CreateSlimBuilder(args);
+
+builder.Services.ConfigureHttpJsonOptions(opts =>
+    opts.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+);
+
 builder.WebHost.UseUrls($"http://*:{appPort}");  // Explicitly sets the port so it can be deployed
 
 Console.WriteLine("Starting SMS_Bridge application...");
@@ -161,12 +166,14 @@ try
             var modifiedRequest = request with { PhoneNumber = destinationNumber };
 
             var smsBridgeID = smsQueueService.QueueSms(modifiedRequest);
-            return Results.Ok(new Result
-            (
-                Success: true,
-                Message: "SMS queued for sending",
-                SMSBridgeID: smsBridgeID.ToString()
-            ));
+            return Results.Json(
+                new Result(
+                    Success: true,
+                    Message: "SMS queued for sending",
+                    SMSBridgeID: smsBridgeID.Value.ToString()
+                ),
+                AppJsonSerializerContext.Default.Result
+            );
         }
         catch (Exception ex)
         {
@@ -176,26 +183,21 @@ try
 
     // Note SMSBridgeID is the SMSBridgeID - it's the ID we use when talking to external systems (OD mostly)
     // and providerMessageID is the ID used internally by providers (e.g. eTXT, Diafaan, etc.)
-    smsGatewayApi.MapGet("/sms-status/{messageId}", async (string messageId, ISmsProvider smsProvider, SmsQueueService smsQueueService) =>
+    smsGatewayApi.MapGet("/sms-status/{smsBridgeId:guid}", 
+    async (Guid smsBridgeId, ISmsProvider smsProvider) =>
     {
-        if (!Guid.TryParse(messageId, out var SMSBridgeID))
-        {
-            return Results.BadRequest("Invalid message ID format");
-        }
+        if (smsProvider is not JustRemotePhoneSmsProvider provider)
+            return Results.BadRequest("Unsupported SMS provider");
 
-        if (!smsQueueService.TryGetProviderMessageID(SMSBridgeID, out var providerMessageID))
-        {
-            return Results.NotFound("Unknown message ID");
-        }
+        var status = await provider.GetMessageStatus(new SmsBridgeId(smsBridgeId));
 
-        // NEVER NEVER NEVER convert between provider message ID and SMSBridgeID
-        // They are both Guids.  They are never the same.
-        var status = await smsProvider.GetMessageStatus(new SmsBridgeId(SMSBridgeID));
-        return Results.Ok(new MessageStatusResponse
-        (
-            MessageID: messageId,       
-            Status: status
-        ));
+        return Results.Json(
+            new MessageStatusResponse(
+                MessageID: smsBridgeId.ToString(),
+                Status:    status
+            ),
+            AppJsonSerializerContext.Default.MessageStatusResponse
+        );
     });
 
     smsGatewayApi.MapGet("/received-sms", async (ISmsProvider smsProvider) =>
@@ -203,14 +205,18 @@ try
         try
         {
             if (smsProvider is not JustRemotePhoneSmsProvider provider)
-            {
                 return Results.BadRequest("Unsupported SMS provider");
-            }
 
             var messages = await provider.GetReceivedMessages();
-            var json = JsonSerializer.Serialize(messages, AppJsonSerializerContext.Default.IEnumerableReceiveSmsRequest);
+            var flat = messages.Select(m => new {
+                messageID         = m.MessageID.Value,
+                providerMessageID = m.ProviderMessageID.Value,
+                fromNumber        = m.FromNumber,
+                messageText       = m.MessageText,
+                receivedAt        = m.ReceivedAt
+            });
 
-            return Results.Ok(messages);
+            return Results.Json(flat);
         }
         catch (Exception ex)
         {
@@ -244,9 +250,11 @@ try
             }
 
             var statuses = await provider.GetRecentMessageStatuses();
-            var json = JsonSerializer.Serialize(statuses, AppJsonSerializerContext.Default.IEnumerableMessageStatusRecord);
+            return Results.Json(
+                statuses,
+                AppJsonSerializerContext.Default.IEnumerableMessageStatusRecord
+            );
 
-            return Results.Ok(statuses);
         }
         catch (Exception ex)
         {
