@@ -30,20 +30,22 @@ namespace SMS_Bridge.Services
             LoadReceivedMessagesFromDisk();
         }
 
-        public void HandleSmsReceived(string number, string contactLabel, string text)
+        public void HandleSmsReceived(string number, string contactLabel, string text, string providerMessageIdString)
         {
-            // FIXME: Set ProviderMessageID to the value from the provider
             var smsBridgeId = new SmsBridgeId(Guid.NewGuid());
+            var providerMessageId = new ProviderMessageId(Guid.Parse(providerMessageIdString));
+            
             Logger.LogInfo(
                 provider: _SMSprovider,
                 eventType: "SMSReceived",
                 SMSBridgeID: smsBridgeId,
-                providerMessageID: default, // How on earch don't we ahave a provider message after a receive? BUG BUG BUG
+                providerMessageID: providerMessageId,
                 details: $"From: {number}, Contact: {contactLabel}, Message: {text}"
             );
 
             var receivedSms = new ReceiveSmsRequest(
                 MessageID: smsBridgeId,
+                ProviderMessageID: providerMessageId,
                 FromNumber: number,
                 MessageText: text,
                 ReceivedAt: DateTime.Now

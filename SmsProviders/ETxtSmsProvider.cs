@@ -199,7 +199,12 @@ namespace SMS_Bridge.SmsProviders
                 return BadRequest("ReplyContent is missing.");
             }
 
-            _smsReceivedHandler.HandleSmsReceived(request.SourceAddress, "", (string)request.ReplyContent); // ContactLabel is not available here, pass empty string.
+            _smsReceivedHandler.HandleSmsReceived(
+                number: request.SourceAddress,
+                contactLabel: "", // ContactLabel is not available here, pass empty string
+                text: (string)request.ReplyContent,
+                providerMessageIdString: request.MessageId // Pass the provider's message ID
+            );
 
             return Ok();
         }

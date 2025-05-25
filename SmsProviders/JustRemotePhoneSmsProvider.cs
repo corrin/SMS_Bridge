@@ -197,7 +197,18 @@ namespace SMS_Bridge.SmsProviders
         }
         private void OnSMSReceived(string number, string contactLabel, string text)
         {
-            _smsReceivedHandler.HandleSmsReceived(number, contactLabel, text);
+            // For JustRemotePhone, we don't have a provider message ID in the callback!!
+            // Validated from the API documentation 20250525
+            // https://www.justremotephone.com/sdk/Help/index.php
+            // Generate a new one to maintain consistency with the updated interface
+            string providerMessageId = Guid.NewGuid().ToString();
+            
+            _smsReceivedHandler.HandleSmsReceived(
+                number: number,
+                contactLabel: contactLabel,
+                text: text,
+                providerMessageIdString: providerMessageId
+            );
         }
 
 
