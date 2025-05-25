@@ -1,8 +1,16 @@
-﻿using SMS_Bridge.Models;
+﻿﻿using SMS_Bridge.Models;
 
 namespace SMS_Bridge.SmsProviders
 {
 
+
+    public enum SmsProviderType
+    {
+        JustRemotePhone,
+        Diafaan,
+        ETxt,
+        BuggyCodeNeedsFixing
+    }
 
     public interface ISmsProvider
     {

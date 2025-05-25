@@ -60,7 +60,7 @@ try
     if (isDebugMode && string.IsNullOrEmpty(configuration["SmsSettings:TestingPhoneNumber"]))
     {
         Logger.LogWarning(
-            provider: "Startup",
+            provider: SmsProviderType.BuggyCodeNeedsFixing,
             eventType: "Configuration",
             messageID: "",
             details: "Debug mode is enabled but no testing phone number is configured"
@@ -80,16 +80,21 @@ try
         var apiKey = configuration["SmsSettings:Providers:etxt:ApiKey"]!;
         var apiSecret = configuration["SmsSettings:Providers:etxt:ApiSecret"]!;
 
-        ISmsProvider provider = smsProvider switch
+        if (!Enum.TryParse(smsProvider, true, out SmsProviderType providerType))
         {
-            "justremotephone" => new JustRemotePhoneSmsProvider(),
-            "diafaan" => new DiafaanSmsProvider(),
-            "etxt" => CreateETxtProvider(configuration, fileConfiguration, httpClient, apiKey, apiSecret),
-            _ => throw new InvalidOperationException($"Unsupported SMS provider: {smsProvider}")
+            throw new InvalidOperationException($"Unsupported SMS provider: {smsProvider}");
+        }
+
+        ISmsProvider provider = providerType switch
+        {
+            SmsProviderType.JustRemotePhone => new JustRemotePhoneSmsProvider(),
+            SmsProviderType.Diafaan => new DiafaanSmsProvider(),
+            SmsProviderType.ETxt => CreateETxtProvider(configuration, fileConfiguration, httpClient, apiKey, apiSecret),
+            _ => throw new InvalidOperationException($"Unsupported SMS provider: {smsProvider}") // This case should not be reached if parsing is successful
         };
 
         Logger.LogInfo(
-            provider: "Startup",
+            provider: SmsProviderType.BuggyCodeNeedsFixing,
             eventType: "Configuration",
             messageID: "",
             details: $"Initialized SMS provider: {smsProvider}"
@@ -114,8 +119,11 @@ try
                 if (!http.Request.Headers.TryGetValue("X-API-Key", out var sent)
                  || sent != apiKey)
                 {
-                    Logger.LogWarning("Security", "UnauthorizedAccess", "",
-                        $"Missing/invalid global API key from {http.Connection.RemoteIpAddress}");
+                    Logger.LogWarning(
+                        provider: SmsProviderType.BuggyCodeNeedsFixing,
+                        eventType: "UnauthorizedAccess",
+                        messageID: "",
+                        details: $"Missing/invalid global API key from {http.Connection.RemoteIpAddress}");
                     return Results.Unauthorized();
                 }
             }
@@ -141,7 +149,7 @@ try
                     if (!string.IsNullOrEmpty(testNumber))
                     {
                         Logger.LogInfo(
-                            provider: "SmsGateway",
+                            provider: SmsProviderType.BuggyCodeNeedsFixing,
                             eventType: "DebugRedirect",
                             messageID: "",
                             details: $"Redirecting SMS from {destinationNumber} to {testNumber}"
@@ -206,7 +214,7 @@ try
         catch (Exception ex)
         {
             Logger.LogError(
-                provider: "API",
+                provider: SmsProviderType.BuggyCodeNeedsFixing,
                 eventType: "GetReceivedMessagesEndpoint",
                 messageID: "",
                 details: $"Error in received-sms endpoint: {ex.Message}"
@@ -221,6 +229,13 @@ try
 
     smsGatewayApi.MapGet("/recent-status-values", async (ISmsProvider smsProvider) =>
     {
+        SmsProviderType CurrentSMSProvider = smsProvider switch
+        {
+            JustRemotePhoneSmsProvider => SmsProviderType.JustRemotePhone,
+            ETxtSmsProvider => SmsProviderType.ETxt,
+            DiafaanSmsProvider => SmsProviderType.Diafaan,
+            _ => SmsProviderType.BuggyCodeNeedsFixing // Fallback for unsupported providers
+        };
         try
         {
             if (smsProvider is not JustRemotePhoneSmsProvider provider)
@@ -236,7 +251,7 @@ try
         catch (Exception ex)
         {
             Logger.LogError(
-                provider: "API",
+                provider: CurrentSMSProvider,
                 eventType: "GetReceivedMessagesEndpoint",
                 messageID: "",
                 details: $"Error in received-sms endpoint: {ex.Message}"
@@ -292,7 +307,7 @@ try
         Testing.RegisterTestingEndpoints(testingApi, configuration);
 
         Logger.LogInfo(
-            provider: "Startup",
+            provider: SmsProviderType.BuggyCodeNeedsFixing,
             eventType: "Configuration",
             messageID: "",
             details: "Debug mode enabled - test endpoints registered"
@@ -307,7 +322,7 @@ try
     }
 
     Logger.LogInfo(
-        provider: "Startup",
+        provider: SmsProviderType.BuggyCodeNeedsFixing,
         eventType: "Configuration",
         messageID: "",
         details: $"SMS Gateway initialized in {(isDebugMode ? "debug" : "production")} mode"
@@ -320,7 +335,7 @@ catch (Exception ex)
     Console.WriteLine($"Application failed to start. About to log: {ex}");
 
     Logger.LogCritical(
-        provider: "Startup",
+        provider: SmsProviderType.BuggyCodeNeedsFixing,
         eventType: "StartupFailure",
         messageID: "",
         details: $"Application failed to start: {ex.Message}"

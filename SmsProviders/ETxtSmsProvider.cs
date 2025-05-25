@@ -1,4 +1,4 @@
-﻿using SMS_Bridge.Models;
+﻿﻿using SMS_Bridge.Models;
 using SMS_Bridge.SmsProviders;
 using SMS_Bridge.Services; // Added using for SmsReceivedHandler
 using System;
@@ -34,7 +34,7 @@ namespace SMS_Bridge.SmsProviders
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             _apiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey));
             _apiSecret = apiSecret ?? throw new ArgumentNullException(nameof(apiSecret));
-            _smsReceivedHandler = new SmsReceivedHandler("ETxt"); // Initialize the handler
+            _smsReceivedHandler = new SmsReceivedHandler(SmsProviderType.ETxt); 
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _fileConfiguration = fileConfiguration ?? throw new ArgumentNullException(nameof(fileConfiguration));
 
@@ -151,10 +151,29 @@ namespace SMS_Bridge.SmsProviders
             // You would parse the incoming request body into this model.
             if (request != null)
             {
-                // Extract relevant information and pass it to the handler
-                _smsReceivedHandler.HandleSmsReceived(request.SourceAddress, null, request.ReplyContent); // ContactLabel is not available here
+                if (!string.IsNullOrEmpty(request.SourceAddress))
+                {
+                    if (request.ReplyContent == null)
+                    {
+                        // Log error and return BadRequest if ReplyContent is null
+                        Logger.LogError(SmsProviderType.ETxt, "HandleInboundWebhook", "", "Received ETxt webhook request with null ReplyContent.");
+                        return BadRequest("ReplyContent is missing.");
+                    }
+                    else
+                    {
+                        // Extract relevant information and pass it to the handler
+                        // ReplyContent is guaranteed not null here
+                        _smsReceivedHandler.HandleSmsReceived(request.SourceAddress, "", (string)request.ReplyContent); // ContactLabel is not available here, pass empty string.
 
-                return Ok(); // Indicate successful processing
+                        return Ok(); // Indicate successful processing
+                    }
+                }
+                else
+                {
+                    // Log a warning or error if SourceAddress is null or empty
+                    Logger.LogWarning(SmsProviderType.ETxt, "HandleInboundWebhook", "", "Received ETxt webhook request with null or empty SourceAddress.");
+                    return BadRequest("SourceAddress is missing."); // Indicate bad request
+                }
             }
             else
             {
@@ -201,7 +220,7 @@ namespace SMS_Bridge.SmsProviders
 
                 var listResponse = await _httpClient.SendAsync(getRequest);
                 listResponse.EnsureSuccessStatusCode();
-                Logger.LogInfo("ETxt", "WebhookRegister", "", "Retrieved existing webhooks.");
+                Logger.LogInfo(SmsProviderType.ETxt, "WebhookRegister", "", "Retrieved existing webhooks.");
 
                 var webhookListResponse = await listResponse.Content.ReadFromJsonAsync<ETxtWebhookListResponse>();
                 var existingWebhook = webhookListResponse?.PageData?.FirstOrDefault(w => w.Url == desiredWebhook.url);
@@ -220,11 +239,11 @@ namespace SMS_Bridge.SmsProviders
 
                         var putResponse = await _httpClient.SendAsync(putRequest);
                         putResponse.EnsureSuccessStatusCode();
-                        Logger.LogInfo("ETxt", "WebhookRegister", "", $"Existing webhook with ID {existingWebhook.Id} updated.");
+                        Logger.LogInfo(SmsProviderType.ETxt, "WebhookRegister", "", $"Existing webhook with ID {existingWebhook.Id} updated.");
                     }
                     else
                     {
-                        Logger.LogInfo("ETxt", "WebhookRegister", "", "Webhook already up to date.");
+                        Logger.LogInfo(SmsProviderType.ETxt, "WebhookRegister", "", "Webhook already up to date.");
                     }
                 }
                 else
@@ -238,7 +257,7 @@ namespace SMS_Bridge.SmsProviders
 
                     var postResponse = await _httpClient.SendAsync(postRequest);
                     postResponse.EnsureSuccessStatusCode();
-                    Logger.LogInfo("ETxt", "WebhookRegister", "", "Webhook registration succeeded.");
+                    Logger.LogInfo(SmsProviderType.ETxt, "WebhookRegister", "", "Webhook registration succeeded.");
                 }
             }
             catch (HttpRequestException httpEx)
@@ -248,11 +267,11 @@ namespace SMS_Bridge.SmsProviders
                 {
                      errorMsg = $"{httpEx.StatusCode.Value} - {errorMsg}";
                 }
-                Logger.LogError("ETxt", "WebhookRegister", "", $"Webhook operation failed: {errorMsg}");
+                Logger.LogError(SmsProviderType.ETxt, "WebhookRegister", "", $"Webhook operation failed: {errorMsg}");
             }
             catch (Exception ex)
             {
-                Logger.LogError("ETxt", "WebhookRegister", "", $"An error occurred during webhook operation: {ex.Message}");
+                Logger.LogError(SmsProviderType.ETxt, "WebhookRegister", "", $"An error occurred during webhook operation: {ex.Message}");
             }
         }
 
@@ -260,9 +279,16 @@ namespace SMS_Bridge.SmsProviders
         private bool WebhookNeedsUpdate(ETxtWebhook existing, dynamic desired)
         {
             // Compare properties based on the Python example logic
+
+            // Compare Events collections, handling nulls and ignoring order
+            // This is stupidly and unnecessarily complex, stupid LLMs overcooking everything
+            var existingEventsSet = new HashSet<string>(existing.Events ?? Enumerable.Empty<string>());
+            var desiredEventsSet = new HashSet<string>(((IEnumerable<string>)desired.events) ?? Enumerable.Empty<string>());
+            bool eventSetNeedsChange = !existingEventsSet.SetEquals(desiredEventsSet);
+
             if (existing.Method != desired.method ||
                 existing.Encoding != desired.encoding ||
-                !Enumerable.SequenceEqual(existing.Events.OrderBy(e => e), ((IEnumerable<string>)desired.events).OrderBy(e => e)) ||
+                eventSetNeedsChange ||
                 existing.Template != desired.template ||
                 existing.ReadTimeout != desired.read_timeout ||
                 existing.Retries != desired.retries ||

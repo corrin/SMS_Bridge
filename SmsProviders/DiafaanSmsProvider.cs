@@ -1,4 +1,4 @@
-﻿using SMS_Bridge.Models;
+﻿﻿using SMS_Bridge.Models;
 using SMS_Bridge.Services;
 
 namespace SMS_Bridge.SmsProviders
@@ -19,7 +19,7 @@ namespace SMS_Bridge.SmsProviders
         public Task<SmsStatus> GetMessageStatus(Guid messageId)
         {
             Logger.LogWarning(
-                provider: "Diafaan",
+                provider: SmsProviderType.Diafaan,
                 eventType: "NotImplemented",
                 messageID: messageId.ToString(),
                 details: "Status check attempted but eTXT provider is not implemented"
@@ -30,7 +30,7 @@ namespace SMS_Bridge.SmsProviders
         public Task<IEnumerable<ReceiveSmsRequest>> GetReceivedMessages()
         {
             Logger.LogWarning(
-                provider: "Diafaan",
+                provider: SmsProviderType.Diafaan,
                 eventType: "NotImplemented",
                 messageID: "",
                 details: "Receive Messages attempted but Diafaan provider is not implemented"
@@ -41,7 +41,7 @@ namespace SMS_Bridge.SmsProviders
         public Task<DeleteMessageResponse> DeleteReceivedMessage(Guid messageId)
         {
             Logger.LogWarning(
-                provider: "Diafaan",
+                provider: SmsProviderType.Diafaan,
                 eventType: "NotImplemented",
                 messageID: "",
                 details: "Delete Message attempted but Diafaan provider is not implemented"
@@ -56,7 +56,7 @@ namespace SMS_Bridge.SmsProviders
         public Task<IEnumerable<MessageStatusRecord>> GetRecentMessageStatuses()
         {
             Logger.LogWarning(
-                provider: "eTXT",
+                provider: SmsProviderType.Diafaan,
                 eventType: "NotImplemented",
                 messageID: "",
                 details: "Get Recent Statuses attempted but Diafaan provider is not implemented"

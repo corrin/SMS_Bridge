@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+﻿﻿using System.Collections.Concurrent;
 using SMS_Bridge.Models;
 using SMS_Bridge.SmsProviders;
 
@@ -7,6 +7,7 @@ namespace SMS_Bridge.Services
     public class SmsQueueService
     {
         private readonly ISmsProvider _provider;
+        private readonly SmsProviderType _providerType;
         private readonly ConcurrentQueue<(SendSmsRequest Request, Guid ExternalId)> _smsQueue = new();
         private readonly ConcurrentDictionary<Guid, Guid> _externalToInternal = new();
         private readonly Timer _processTimer;
@@ -17,8 +18,16 @@ namespace SMS_Bridge.Services
             _provider = provider ?? throw new ArgumentNullException(nameof(provider));
             _processTimer = new Timer(ProcessQueue, null, PROCESS_INTERVAL_MS, PROCESS_INTERVAL_MS);
 
+            _providerType = provider switch
+            {
+                JustRemotePhoneSmsProvider => SmsProviderType.JustRemotePhone,
+                ETxtSmsProvider => SmsProviderType.ETxt,
+                DiafaanSmsProvider => SmsProviderType.Diafaan,
+                _ => SmsProviderType.BuggyCodeNeedsFixing // Fallback for unsupported providers
+            };
+
             Logger.LogInfo(
-                provider: "SmsQueue",
+                provider: _providerType,
                 eventType: "Initialization",
                 messageID: "",
                 details: "SMS Queue initialized");
@@ -35,7 +44,7 @@ namespace SMS_Bridge.Services
             _smsQueue.Enqueue((request, externalId));
 
             Logger.LogInfo(
-                provider: "SmsQueue",
+                provider: _providerType,
                 eventType: "MessageQueued",
                 messageID: externalId.ToString(),
                 details: $"SMS queued for {request.PhoneNumber}");
@@ -59,7 +68,7 @@ namespace SMS_Bridge.Services
                     _externalToInternal[externalId] = internalId;
 
                     Logger.LogInfo(
-                        provider: "SmsQueue",
+                        provider: _providerType,
                         eventType: "MessageSent",
                         messageID: externalId.ToString(),
                         details: $"Mapped to internalId (SMSBridgeID): {internalId}, SMS sent to {request.PhoneNumber}");
@@ -67,7 +76,7 @@ namespace SMS_Bridge.Services
                 catch (Exception ex)
                 {
                     Logger.LogError(
-                        provider: "SmsQueue",
+                        provider: _providerType,
                         eventType: "SendFailed",
                         messageID: externalId.ToString(),
                         details: $"Failed to send SMS to {request.PhoneNumber}: {ex.Message}");

@@ -36,7 +36,7 @@ namespace SMS_Bridge.SmsProviders
             try
             {
                 Logger.LogInfo(
-                    provider: "JustRemotePhone",
+                    provider: SmsProviderType.JustRemotePhone,
                     eventType: "ConnectionHealthCheck",
                     messageID: "",
                     details: $"Performing periodic connection refresh, current state: {_isConnected}"
@@ -48,7 +48,7 @@ namespace SMS_Bridge.SmsProviders
             catch (Exception ex)
             {
                 Logger.LogError(
-                    provider: "JustRemotePhone",
+                    provider: SmsProviderType.JustRemotePhone,
                     eventType: "ConnectionRefreshFailed",
                     messageID: "",
                     details: $"Failed to refresh connection: {ex.Message}"
@@ -82,7 +82,7 @@ namespace SMS_Bridge.SmsProviders
         {
             _isConnected = newState == ApplicationState.Connected;
             Logger.LogInfo(
-                provider: "JustRemotePhone",
+                provider: SmsProviderType.JustRemotePhone,
                 eventType: "ApplicationStateChanged",
                 messageID: "",
                 details: $"NewState: {newState}, OldState: {oldState}"
@@ -104,7 +104,7 @@ namespace SMS_Bridge.SmsProviders
             }
 
             Logger.LogError(
-                provider: "JustRemotePhone",
+                provider: SmsProviderType.JustRemotePhone,
                 eventType: "ConnectionTimeout",
                 messageID: "",
                 details: $"Connection attempt timed out after {_connectionTimeoutMs}ms"
@@ -133,7 +133,7 @@ namespace SMS_Bridge.SmsProviders
             {
                 var timeoutInterval = DateTime.Now - existing.SentAt;
                 Logger.LogError(
-                    provider: "JustRemotePhone",
+                    provider: SmsProviderType.JustRemotePhone,
                     eventType: "Timeout",
                     messageID: messageId.ToString(),
                     details: $"Message timed out after {timeoutInterval.TotalMinutes:F1} minutes. Numbers: {string.Join(",", numbers)}"
@@ -161,7 +161,7 @@ namespace SMS_Bridge.SmsProviders
                 for (int i = 0; i < numbers.Length; i++)
                 {
                     Logger.LogInfo(
-                        provider: "JustRemotePhone",
+                        provider: SmsProviderType.JustRemotePhone,
                         eventType: "DeliveryStatus",
                         messageID: smsSendRequestId.ToString(),
                         details: $"Number: {numbers[i]}, Status: {status}, Delivery Time: {deliveryInterval.TotalSeconds:F1} seconds"
@@ -171,7 +171,7 @@ namespace SMS_Bridge.SmsProviders
             else
             {
                 Logger.LogWarning(
-                    provider: "JustRemotePhone",
+                    provider: SmsProviderType.JustRemotePhone,
                     eventType: "UnexpectedDeliveryStatus",
                     messageID: smsSendRequestId.ToString(),
                     details: $"Received delivery status but no send time recorded. Numbers: {string.Join(",", numbers)}"
@@ -209,7 +209,7 @@ namespace SMS_Bridge.SmsProviders
             if (!_isConnected)
             {
                 Logger.LogInfo(
-                    provider: "JustRemotePhone",
+                    provider: SmsProviderType.JustRemotePhone,
                     eventType: "SendSMS",
                     messageID: "",
                     details: $"Starting to send an SMS but RemotePhone is not connected.  Attempting to Connect "
@@ -234,7 +234,7 @@ namespace SMS_Bridge.SmsProviders
                 Guid sendSMSRequestId = Guid.Empty;
 
                 Logger.LogInfo(
-                    provider: "JustRemotePhone",
+                    provider: SmsProviderType.JustRemotePhone,
                     eventType: "SendAttempt",
                     messageID: "",
                     details: $"PhoneNumber: {request.PhoneNumber}, Message: {request.Message}"
@@ -245,7 +245,7 @@ namespace SMS_Bridge.SmsProviders
                 SetupMessageTimeout(sendSMSRequestId, numbers);
 
                 Logger.LogInfo(
-                    provider: "JustRemotePhone",
+                    provider: SmsProviderType.JustRemotePhone,
                     eventType: "SendSuccess",
                     messageID: sendSMSRequestId.ToString(),
                     details: $"PhoneNumber: {request.PhoneNumber}"
@@ -261,7 +261,7 @@ namespace SMS_Bridge.SmsProviders
             catch (Exception ex)
             {
                 Logger.LogError(
-                    provider: "JustRemotePhone",
+                    provider: SmsProviderType.JustRemotePhone,
                     eventType: "SendFailure",
                     messageID: "",
                     details: $"PhoneNumber: {request.PhoneNumber}, Error: {ex.Message}"
@@ -313,7 +313,7 @@ namespace SMS_Bridge.SmsProviders
         public Task<SmsStatus> GetMessageStatus(Guid messageId)
         {
             Logger.LogInfo(
-                provider: "JustRemotePhone",
+                provider: SmsProviderType.JustRemotePhone,
                 eventType: "StatusCheck",
                 messageID: messageId.ToString(),
                 details: $"Timer exists: {_messageTimers.ContainsKey(messageId)}, Status exists: {_messageStatuses.ContainsKey(messageId)}"
@@ -330,7 +330,7 @@ namespace SMS_Bridge.SmsProviders
             }
 
             Logger.LogWarning(
-                provider: "JustRemotePhone",
+                provider: SmsProviderType.JustRemotePhone,
                 eventType: "UnknownMessageStatus",
                 messageID: messageId.ToString(),
                 details: "Status check for unknown message ID"

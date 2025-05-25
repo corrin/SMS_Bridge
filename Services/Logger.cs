@@ -1,6 +1,7 @@
-﻿using System.Diagnostics;
+﻿﻿﻿﻿﻿﻿﻿﻿using System.Diagnostics;
 using System.Text.Json;
 using SMS_Bridge.Models;
+using SMS_Bridge.SmsProviders;
 
 namespace SMS_Bridge.Services
 {
@@ -33,14 +34,16 @@ namespace SMS_Bridge.Services
         }
 
 
-        public static void Log(string level, string provider,  string eventType, string messageID, string details)
+        public static void Log(string level, SmsProviderType provider,  string eventType, string messageID, string details)
         {
             try
             {
+                string providerString = provider.ToString();
+
                 var logEntry = new LogEntry(
                     Timestamp: DateTime.Now.ToString("o"),
                     Level: level,
-                    Provider: provider,
+                    Provider: providerString,
                     EventType: eventType,
                     MessageId: messageID,
                     Details: details
@@ -52,7 +55,7 @@ namespace SMS_Bridge.Services
                 File.AppendAllText(logFilePath, jsonLog + Environment.NewLine);
 
                 // Simplified console log
-                Console.WriteLine($"{DateTime.Now:HH:mm:ss} | {level} | {provider} | {eventType} | {details}");
+                Console.WriteLine($"{DateTime.Now:HH:mm:ss} | {level} | {providerString} | {eventType} | {details}");
 
             }
             catch (Exception ex)
@@ -66,18 +69,18 @@ namespace SMS_Bridge.Services
             }
         }
 
-        public static void LogCritical(string provider, string eventType, string messageID, string details)
+        public static void LogCritical(SmsProviderType provider, string eventType, string messageID, string details)
         {
             Log("CRITICAL", provider, eventType, messageID, details);
         }
 
-        public static void LogInfo(string provider, string eventType, string messageID, string details) =>
+        public static void LogInfo(SmsProviderType provider, string eventType, string messageID, string details) =>
             Log("INFO", provider, eventType, messageID, details);
 
-        public static void LogError(string provider, string eventType, string messageID, string details) =>
+        public static void LogError(SmsProviderType provider, string eventType, string messageID, string details) =>
             Log("ERROR", provider, eventType, messageID, details);
 
-        public static void LogWarning(string provider, string eventType, string messageID, string details) =>
+        public static void LogWarning(SmsProviderType provider, string eventType, string messageID, string details) =>
             Log("WARNING", provider, eventType, messageID, details);
     }
 }
