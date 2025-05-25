@@ -2,6 +2,7 @@
 using SMS_Bridge.SmsProviders;
 using SMS_Bridge.Services; // Added using for SmsReceivedHandler
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -27,6 +28,7 @@ namespace SMS_Bridge.SmsProviders
         private readonly SmsReceivedHandler _smsReceivedHandler; // Instance of the new handler
         private readonly IConfiguration _configuration;
         private readonly Configuration _fileConfiguration;
+        private readonly ConcurrentDictionary<SmsBridgeId, ProviderMessageId> _smsBridgeToProviderId = new();
 
 
         public ETxtSmsProvider(HttpClient httpClient, string apiKey, string apiSecret, IConfiguration configuration, Configuration fileConfiguration)
@@ -44,7 +46,7 @@ namespace SMS_Bridge.SmsProviders
         }
 
 
-        public async Task<(IResult Result, Guid MessageId)> SendSms(SendSmsRequest request)
+        public async Task<(IResult Result, SmsBridgeId smsBridgeId)> SendSms(SendSmsRequest request, SmsBridgeId smsBridgeId)
         {
             var url = $"{BaseUrl}/messages";
             var payload = new
@@ -75,32 +77,62 @@ namespace SMS_Bridge.SmsProviders
                 var data = await resp.Content.ReadFromJsonAsync<ETxtSendResponse>();
                 if (data?.Messages != null && data.Messages.Count > 0)
                 {
-                    var id = Guid.Parse(data.Messages[0].MessageId);
-                    return (Ok(), id);
+                    var providerMessageId = new ProviderMessageId(Guid.Parse(data.Messages[0].MessageId));
+                    // Store the mapping between SmsBridgeId and ProviderMessageId
+                    _smsBridgeToProviderId[smsBridgeId] = providerMessageId;
+                    return (Ok(), smsBridgeId);
                 }
                 else
                 {
                     // Handle unexpected response format
                     var err = "Unexpected response format from eTXT API.";
-                    return (Problem(detail: err), Guid.Empty);
+                    return (Problem(detail: err), smsBridgeId);
                 }
             }
             else
             {
                 var err = await resp.Content.ReadAsStringAsync();
-                return (Problem(detail: err), Guid.Empty);
+                return (Problem(detail: err), smsBridgeId);
             }
         }
 
-        public Task<SmsStatus> GetMessageStatus(Guid providerMessageID)
+        public Task<SmsStatus> GetMessageStatus(SmsBridgeId smsBridgeId)
         {
             // Mirror JustRemotePhone behavior: no status-by-list, only per-message GET
-            return GetStatusProviderID(providerMessageID);
+            // Use the GetProviderMessageID method to get the provider message ID
+            var providerMessageId = GetProviderMessageID(smsBridgeId);
+            return GetStatusProviderID(providerMessageId, smsBridgeId);
         }
 
-        private async Task<SmsStatus> GetStatusProviderID(Guid providerMessageID)
+        // Implementation of the interface method
+        public ProviderMessageId? GetProviderMessageID(SmsBridgeId smsBridgeId)
         {
-            var url = $"{BaseUrl}/messages/{providerMessageID}";
+            if (_smsBridgeToProviderId.TryGetValue(smsBridgeId, out var providerMessageId))
+            {
+                return providerMessageId;
+            }
+            
+            // If not found, throw an exception
+            throw new KeyNotFoundException($"No provider message ID found for SMS bridge ID: {smsBridgeId}");
+        }
+
+        private async Task<SmsStatus> GetStatusSMSID(SmsBridgeId smsBridgeId)
+        {
+            // Use the GetProviderMessageID method to get the provider message ID
+            var providerMessageId = GetProviderMessageID(smsBridgeId);
+            return await GetStatusProviderID(providerMessageId, smsBridgeId);
+        }
+
+
+        private async Task<SmsStatus> GetStatusProviderID(ProviderMessageId? providerMessageId, SmsBridgeId smsBridgeId)
+        {
+            // Todo we need to call by provider ID, not SMSBridgeId
+            if (providerMessageId == null)
+            {
+                throw new ArgumentNullException(nameof(providerMessageId), "Provider message ID cannot be null");
+            }
+            
+            var url = $"{BaseUrl}/messages/{providerMessageId}";
             var req = new HttpRequestMessage(HttpMethod.Get, url);
             AddBasicAuthHeader(req);
 
@@ -135,10 +167,10 @@ namespace SMS_Bridge.SmsProviders
             return Task.FromResult((IEnumerable<MessageStatusRecord>)new List<MessageStatusRecord>());
         }
 
-        public Task<DeleteMessageResponse> DeleteReceivedMessage(Guid messageId)
+        public Task<DeleteMessageResponse> DeleteReceivedMessage(SmsBridgeId smsBridgeId)
         {
             // Delegate to the new handler
-            return _smsReceivedHandler.DeleteReceivedMessage(messageId);
+            return _smsReceivedHandler.DeleteReceivedMessage(smsBridgeId);
         }
 
         private void AddBasicAuthHeader(HttpRequestMessage req)
@@ -151,38 +183,35 @@ namespace SMS_Bridge.SmsProviders
         // The actual implementation will depend on the eTXT webhook payload structure
         public IResult HandleInboundWebhook(ETxtWebhookRequest request)
         {
-            // Assuming ETxtWebhookRequest has properties like FromNumber, MessageText, etc.
-            // You would parse the incoming request body into this model.
-            if (request != null)
-            {
-                if (!string.IsNullOrEmpty(request.SourceAddress))
-                {
-                    if (request.ReplyContent == null)
-                    {
-                        // Log error and return BadRequest if ReplyContent is null
-                        Logger.LogError(SmsProviderType.ETxt, "HandleInboundWebhook", "", "Received ETxt webhook request with null ReplyContent.");
-                        return BadRequest("ReplyContent is missing.");
-                    }
-                    else
-                    {
-                        // Extract relevant information and pass it to the handler
-                        // ReplyContent is guaranteed not null here
-                        _smsReceivedHandler.HandleSmsReceived(request.SourceAddress, "", (string)request.ReplyContent); // ContactLabel is not available here, pass empty string.
-
-                        return Ok(); // Indicate successful processing
-                    }
-                }
-                else
-                {
-                    // Log a warning or error if SourceAddress is null or empty
-                    Logger.LogWarning(SmsProviderType.ETxt, "HandleInboundWebhook", "", "Received ETxt webhook request with null or empty SourceAddress.");
-                    return BadRequest("SourceAddress is missing."); // Indicate bad request
-                }
-            }
-            else
+            if (request == null)
             {
                 return BadRequest("Invalid webhook request payload.");
             }
+
+            // Handle possible none by checking upfront and raising an exception as per user instruction
+            if (string.IsNullOrEmpty(request.MessageId))
+            {
+                 throw new InvalidOperationException("Received ETxt webhook request with null or empty MessageId.");
+            }
+
+            if (string.IsNullOrEmpty(request.SourceAddress))
+            {
+                // Log a warning or error if SourceAddress is null or empty
+                Logger.LogWarning(provider: SmsProviderType.ETxt, eventType: "HandleInboundWebhook", details: "Received ETxt webhook request with null or empty SourceAddress.");
+                return BadRequest("SourceAddress is missing."); // Indicate bad request
+            }
+
+            if (request.ReplyContent == null)
+            {
+                // Log error and return BadRequest if ReplyContent is null
+                Logger.LogError(provider: SmsProviderType.ETxt, eventType: "HandleInboundWebhook", details: "Received ETxt webhook request with null ReplyContent.");
+                return BadRequest("ReplyContent is missing.");
+            }
+
+            // Extract relevant information and pass it to the handler
+            _smsReceivedHandler.HandleSmsReceived(request.SourceAddress, "", (string)request.ReplyContent); // ContactLabel is not available here, pass empty string.
+
+            return Ok(); // Indicate successful processing
         }
 
         // Webhook registration logic moved from Program.cs
@@ -224,7 +253,9 @@ namespace SMS_Bridge.SmsProviders
 
                 var listResponse = await _httpClient.SendAsync(getRequest);
                 listResponse.EnsureSuccessStatusCode();
-                Logger.LogInfo(SmsProviderType.ETxt, "WebhookRegister", "", "Retrieved existing webhooks.");
+                Logger.LogInfo(provider: SmsProviderType.ETxt,
+                    eventType: "WebhookRegister",
+                    details: "Retrieved existing webhooks.");
 
                 var webhookListResponse = await listResponse.Content.ReadFromJsonAsync<ETxtWebhookListResponse>();
                 var existingWebhook = webhookListResponse?.PageData?.FirstOrDefault(w => w.Url == desiredWebhook.url);
@@ -243,11 +274,12 @@ namespace SMS_Bridge.SmsProviders
 
                         var putResponse = await _httpClient.SendAsync(putRequest);
                         putResponse.EnsureSuccessStatusCode();
-                        Logger.LogInfo(SmsProviderType.ETxt, "WebhookRegister", "", $"Existing webhook with ID {existingWebhook.Id} updated.");
+                        Logger.LogInfo(provider: SmsProviderType.ETxt,
+                        eventType: "WebhookRegister",  details: $"Existing webhook with ID {existingWebhook.Id} updated.");
                     }
                     else
                     {
-                        Logger.LogInfo(SmsProviderType.ETxt, "WebhookRegister", "", "Webhook already up to date.");
+                        Logger.LogInfo(provider: SmsProviderType.ETxt, eventType: "WebhookRegister", details: "Webhook already up to date.");
                     }
                 }
                 else
@@ -261,7 +293,9 @@ namespace SMS_Bridge.SmsProviders
 
                     var postResponse = await _httpClient.SendAsync(postRequest);
                     postResponse.EnsureSuccessStatusCode();
-                    Logger.LogInfo(SmsProviderType.ETxt, "WebhookRegister", "", "Webhook registration succeeded.");
+                    Logger.LogInfo(provider: SmsProviderType.ETxt,
+                        eventType: "WebhookRegister",
+                        details: "Webhook registration succeeded.");
                 }
             }
             catch (HttpRequestException httpEx)
@@ -271,11 +305,11 @@ namespace SMS_Bridge.SmsProviders
                 {
                      errorMsg = $"{httpEx.StatusCode.Value} - {errorMsg}";
                 }
-                Logger.LogError(SmsProviderType.ETxt, "WebhookRegister", "", $"Webhook operation failed: {errorMsg}");
+                Logger.LogError(SmsProviderType.ETxt, "WebhookRegister", $"Webhook operation failed: {errorMsg}");
             }
             catch (Exception ex)
             {
-                Logger.LogError(SmsProviderType.ETxt, "WebhookRegister", "", $"An error occurred during webhook operation: {ex.Message}");
+                Logger.LogError(SmsProviderType.ETxt, "WebhookRegister", $"An error occurred during webhook operation: {ex.Message}");
             }
         }
 

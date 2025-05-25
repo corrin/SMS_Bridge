@@ -12,7 +12,7 @@
 
         public record CheckSendSmsResponse
         (
-            Guid MessageID,
+            SmsBridgeId MessageID,
             string Status
         );
 
@@ -27,12 +27,12 @@
                     var defaultPhoneNumber = configuration["SmsSettings:TestingPhoneNumber"] ?? "+6421467784";
                     var testRequest = new SendSmsRequest(defaultPhoneNumber, "This is a test message during development");
 
-                    var messageId = smsQueueService.QueueSms(testRequest);
+                    var smsBridgeId = smsQueueService.QueueSms(testRequest);
 
                     return Results.Ok(new Result(
                         Success: true,
                         Message: "SMS queued for sending",
-                        MessageID: messageId.ToString()
+                        SMSBridgeID: smsBridgeId.ToString()
                     ));
                 }
                 catch (Exception ex)
@@ -52,14 +52,24 @@
                     var provider = services.GetRequiredService<ISmsProvider>();
                     var configuration = services.GetRequiredService<IConfiguration>();
                     var defaultPhoneNumber = configuration["SmsSettings:TestingPhoneNumber"] ?? "+64211626986";
-                    var responses = new List<(IResult Result, Guid MessageId)>();
+                    var responses = new List<(IResult Result, SmsBridgeId smsBridgeId)>();
+                    var smsBridgeIDs = new List<SmsBridgeId>(); // Collect SMSBridgeIDs
+                    var providerMessageIDs = new List<ProviderMessageId>(); // Collect ProviderMessageIDs
                     var totalMessages = 50;
 
                     for (int i = 0; i < totalMessages; i++)
                     {
+                        var smsBridgeId = new SmsBridgeId(Guid.NewGuid());
                         var testRequest = new SendSmsRequest(defaultPhoneNumber, $"Bulk test message #{i + 1} of {totalMessages}");
-                        var response = await provider.SendSms(testRequest);
+                        var response = await provider.SendSms(testRequest, smsBridgeId);
                         responses.Add(response);
+                        smsBridgeIDs.Add(smsBridgeId); // Add SMSBridgeID to list
+                        // We need to get the provider message ID from the SMS provider
+                        var providerMessageId = provider.GetProviderMessageID(smsBridgeId);
+                        if (providerMessageId != null)
+                        {
+                            providerMessageIDs.Add(providerMessageId.Value);
+                        }
                     }
 
                     var successCount = responses.Count(r => r.Result is ObjectResult && ((ObjectResult)r.Result).StatusCode == 200);
@@ -69,7 +79,8 @@
                         Success: failureCount == 0,
                         Message: $"Bulk send completed: {successCount} succeeded, {failureCount} failed",
                         Results: responses.Select(r => r.Result),
-                        MessageIds: responses.Select(r => r.MessageId.ToString())
+                        SMSBridgeIDs: smsBridgeIDs, // Use collected SMSBridgeIDs
+                        ProviderMessageIDs: providerMessageIDs // BUG BUG BUG
                     ));
                 }
                 catch (Exception ex)
@@ -91,7 +102,7 @@
                     var defaultPhoneNumber = configuration["SmsSettings:TestingPhoneNumber"] ?? "+6421467784";
                     var testRequest = new SendSmsRequest(defaultPhoneNumber, "This is a test message during development");
 
-                    var messageId = smsQueueService.QueueSms(testRequest);
+                    var smsBridgeId = smsQueueService.QueueSms(testRequest);
                     var status = SmsStatus.Pending;
 
                     await Task.Delay(1000); // Initial delay
@@ -100,7 +111,7 @@
                     for (int i = 0; i < 20; i++)
                     {
                         await Task.Delay(1000);
-                        status = await smsProvider.GetMessageStatus(messageId);
+                        status = await smsProvider.GetMessageStatus(smsBridgeId);
                         if (status != SmsStatus.Pending)
                         {
                             break;
@@ -108,7 +119,7 @@
                     }
 
                     return Results.Ok(new CheckSendSmsResponse(
-                        MessageID: messageId,
+                        MessageID: smsBridgeId,
                         Status: status.ToString()
                     ));
                 }

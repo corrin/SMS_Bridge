@@ -15,7 +15,7 @@ namespace SMS_Bridge.Models
     public record Result(
         bool Success,
         string Message,
-        string MessageID = ""  // Default value for MessageID since it might not always be needed
+        string SMSBridgeID = "" 
     );
 
     public class ApiResponse<T>
@@ -27,7 +27,8 @@ namespace SMS_Bridge.Models
         bool Success,
         string Message,
         IEnumerable<IResult> Results,
-        IEnumerable<string> MessageIds
+        IEnumerable<SmsBridgeId> SMSBridgeIDs,
+        IEnumerable<ProviderMessageId> ProviderMessageIDs
     );
 
     public record MessageStatusResponse(
@@ -38,7 +39,7 @@ namespace SMS_Bridge.Models
     }
 
     public record DeleteMessageResponse(
-        string MessageID,
+        SmsBridgeId SMSBridgeID,
         bool Deleted,
         string DeleteFeedback
     );
@@ -50,7 +51,8 @@ namespace SMS_Bridge.Models
     );
 
     public record MessageStatusRecord(
-        Guid MessageId,
+        SmsBridgeId SMSBridgeID,
+        ProviderMessageId ProviderMessageID,
         SmsStatus Status,
         DateTime SentAt,
         DateTime StatusAt

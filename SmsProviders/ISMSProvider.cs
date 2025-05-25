@@ -14,10 +14,11 @@ namespace SMS_Bridge.SmsProviders
 
     public interface ISmsProvider
     {
-        Task<(IResult Result, Guid MessageId)> SendSms(SendSmsRequest request);
-        Task<SmsStatus> GetMessageStatus(Guid messageId);
+        Task<(IResult Result, SmsBridgeId smsBridgeId)> SendSms(SendSmsRequest request, SmsBridgeId smsBridgeId);
+        Task<SmsStatus> GetMessageStatus(SmsBridgeId smsBridgeId);
+        ProviderMessageId? GetProviderMessageID(SmsBridgeId smsBridgeId);
         Task<IEnumerable<ReceiveSmsRequest>> GetReceivedMessages();
-        Task<DeleteMessageResponse> DeleteReceivedMessage(Guid messageId);
+        Task<DeleteMessageResponse> DeleteReceivedMessage(SmsBridgeId smsBridgeId);
         Task<IEnumerable<MessageStatusRecord>> GetRecentMessageStatuses();
     }
 

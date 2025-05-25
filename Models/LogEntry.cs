@@ -5,7 +5,8 @@
         string Level,
         string Provider,
         string EventType,
-        string MessageId,
-        string Details
+        string Details,
+        string SMSBridgeID, 
+        string ProviderMessageID
     );
 }

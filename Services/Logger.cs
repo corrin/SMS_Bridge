@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿using System.Diagnostics;
+﻿﻿using System.Diagnostics;
 using System.Text.Json;
 using SMS_Bridge.Models;
 using SMS_Bridge.SmsProviders;
@@ -34,8 +34,10 @@ namespace SMS_Bridge.Services
         }
 
 
-        public static void Log(string level, SmsProviderType provider,  string eventType, string messageID, string details)
+        public static void Log(string level, SmsProviderType provider,  string eventType, string details, SmsBridgeId smsBridgeId, ProviderMessageId providerMessageID)
         {
+            var smsBridgeIdString      = smsBridgeId.ToString();
+            var providerMessageIdString = providerMessageID.ToString();
             try
             {
                 string providerString = provider.ToString();
@@ -45,8 +47,9 @@ namespace SMS_Bridge.Services
                     Level: level,
                     Provider: providerString,
                     EventType: eventType,
-                    MessageId: messageID,
-                    Details: details
+                    Details: details,
+                    SMSBridgeID: smsBridgeIdString, 
+                    ProviderMessageID: providerMessageIdString 
                 );
 
                 string jsonLog = JsonSerializer.Serialize(logEntry, AppJsonSerializerContext.Default.LogEntry);
@@ -60,7 +63,7 @@ namespace SMS_Bridge.Services
             }
             catch (Exception ex)
             {
-                string errorMessage = $"{level}|{provider}|{eventType}|{messageID}|{details}";
+                string errorMessage = $"{level}|{provider}|{eventType}|{smsBridgeIdString}|{details}";
                 Console.WriteLine($"Failed to write to log file: {ex.Message}");
 
 
@@ -69,18 +72,18 @@ namespace SMS_Bridge.Services
             }
         }
 
-        public static void LogCritical(SmsProviderType provider, string eventType, string messageID, string details)
+        public static void LogCritical(SmsProviderType provider, string eventType, string details, SmsBridgeId SMSBridgeID = default, ProviderMessageId providerMessageID = default)
         {
-            Log("CRITICAL", provider, eventType, messageID, details);
+            Log("CRITICAL", provider, eventType, details, SMSBridgeID, providerMessageID);
         }
 
-        public static void LogInfo(SmsProviderType provider, string eventType, string messageID, string details) =>
-            Log("INFO", provider, eventType, messageID, details);
+        public static void LogInfo(SmsProviderType provider, string eventType, string details, SmsBridgeId SMSBridgeID = default, ProviderMessageId providerMessageID = default) =>
+            Log("INFO", provider, eventType, details, SMSBridgeID, providerMessageID);
 
-        public static void LogError(SmsProviderType provider, string eventType, string messageID, string details) =>
-            Log("ERROR", provider, eventType, messageID, details);
+        public static void LogError(SmsProviderType provider, string eventType, string details, SmsBridgeId SMSBridgeID = default, ProviderMessageId providerMessageID = default) =>
+            Log("ERROR", provider, eventType, details, SMSBridgeID, providerMessageID);
 
-        public static void LogWarning(SmsProviderType provider, string eventType, string messageID, string details) =>
-            Log("WARNING", provider, eventType, messageID, details);
+        public static void LogWarning(SmsProviderType provider, string eventType, string details, SmsBridgeId SMSBridgeID = default, ProviderMessageId providerMessageID = default) =>
+            Log("WARNING", provider, eventType, details, SMSBridgeID, providerMessageID);
     }
 }

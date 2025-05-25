@@ -7,7 +7,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.IO;
 using System.Text.Json;
-using System.Threading.Tasks; // Added for Task return types
+using System.Threading.Tasks;
+using System.Diagnostics.Tracing; // Added for Task return types
 
 namespace SMS_Bridge.Services
 {
@@ -15,7 +16,7 @@ namespace SMS_Bridge.Services
     {
         private readonly SmsProviderType _SMSprovider; 
         private static DateTime _lastZeroMessagesLogTime = DateTime.Now;  // Used to throttle the "No messages found" log
-        private static readonly ConcurrentDictionary<Guid, (ReceiveSmsRequest Sms, DateTime ReceivedAt)> _receivedMessages = new();
+        private static readonly ConcurrentDictionary<SmsBridgeId, (ReceiveSmsRequest Sms, DateTime ReceivedAt)> _receivedMessages = new();
         private readonly object _saveLock = new object(); // for saving the received messages Dictionary
         private static readonly string ReceivedMessagesDirectory = @"\\OPENDENTAL\OD Letters\msg_guids\";
         private static readonly string ReceivedMessagesFilePath = Path.Combine(
@@ -31,22 +32,24 @@ namespace SMS_Bridge.Services
 
         public void HandleSmsReceived(string number, string contactLabel, string text)
         {
-            var messageID = Guid.NewGuid(); // Generate a new ID for logging and tracking
+            // FIXME: Set ProviderMessageID to the value from the provider
+            var smsBridgeId = new SmsBridgeId(Guid.NewGuid());
             // Log the incoming message
             Logger.LogInfo(
-                provider: _SMSprovider, 
+                provider: _SMSprovider,
                 eventType: "SMSReceived",
-                messageID: messageID.ToString(),
+                SMSBridgeID: smsBridgeId,
+                providerMessageID: default, // How on earch don't we ahave a provider message after a receive? BUG BUG BUG
                 details: $"From: {number}, Contact: {contactLabel}, Message: {text}"
             );
 
             var receivedSms = new ReceiveSmsRequest(
-                MessageID: messageID,
+                MessageID: smsBridgeId,
                 FromNumber: number,
                 MessageText: text,
                 ReceivedAt: DateTime.Now
             );
-            _receivedMessages.TryAdd(messageID, (receivedSms, DateTime.Now));
+            _receivedMessages.TryAdd(smsBridgeId, (receivedSms, DateTime.Now));
 
             SaveReceivedMessagesToDisk();
         }
@@ -73,18 +76,20 @@ namespace SMS_Bridge.Services
                     File.WriteAllText(ReceivedMessagesFilePath, json);
 
                     Logger.LogInfo(
-                        provider: _SMSprovider, 
+                        provider: _SMSprovider,
                         eventType: "SaveReceivedMessages",
-                        messageID: "",
+                        SMSBridgeID: default,
+                        providerMessageID: default,
                         details: $"Saved {_receivedMessages.Count} messages to {ReceivedMessagesFilePath}."
                     );
                 }
                 catch (Exception ex)
                 {
                     Logger.LogError(
-                        provider: _SMSprovider, 
+                        provider: _SMSprovider,
                         eventType: "SaveReceivedMessagesFailed",
-                        messageID: "",
+                        SMSBridgeID: default,
+                        providerMessageID: default,
                         details: $"Failed to save received messages: {ex.Message}"
                     );
                 }
@@ -108,9 +113,10 @@ namespace SMS_Bridge.Services
                         }
 
                         Logger.LogInfo(
-                            provider: _SMSprovider, 
+                            provider: _SMSprovider,
                             eventType: "LoadReceivedMessages",
-                            messageID: "",
+                            SMSBridgeID: default,
+                            providerMessageID: default,
                             details: $"Loaded {messages.Count} messages from {ReceivedMessagesFilePath}."
                         );
                     }
@@ -118,9 +124,10 @@ namespace SMS_Bridge.Services
                 else
                 {
                     Logger.LogInfo(
-                        provider: _SMSprovider, 
+                        provider: _SMSprovider,
                         eventType: "LoadReceivedMessages",
-                        messageID: "",
+                        SMSBridgeID: default,
+                        providerMessageID: default,
                         details: $"No saved messages found. Starting fresh at {ReceivedMessagesFilePath}."
                     );
                 }
@@ -128,9 +135,10 @@ namespace SMS_Bridge.Services
             catch (Exception ex)
             {
                 Logger.LogError(
-                    provider: _SMSprovider, 
+                    provider: _SMSprovider,
                     eventType: "LoadReceivedMessagesFailed",
-                    messageID: "",
+                    SMSBridgeID: default,
+                    providerMessageID: default,
                     details: $"Failed to load received messages: {ex.Message}"
                 );
             }
@@ -147,9 +155,10 @@ namespace SMS_Bridge.Services
                 if ((DateTime.Now - _lastZeroMessagesLogTime).TotalMinutes > 60)
                 {
                     Logger.LogInfo(
-                        provider: _SMSprovider, 
+                        provider: _SMSprovider,
                         eventType: "NoMessages",
-                        messageID: "",
+                        SMSBridgeID: default,
+                        providerMessageID: default,
                         details: "No messages found for a whole hour."
                     );
                     _lastZeroMessagesLogTime = DateTime.Now;
@@ -160,48 +169,50 @@ namespace SMS_Bridge.Services
                 Logger.LogInfo(
                     provider: _SMSprovider, // I'm an idiot who can't write comments.  So I just write what the code does as the comment
                     eventType: "MessagesFound",
-                    messageID: "",
-                    details: $"Found {_receivedMessages.Count} messages in queue." 
+                    SMSBridgeID: default,
+                    providerMessageID: default,
+                    details: $"Found {_receivedMessages.Count} messages in queue."
                 );
 
                 // Dump the full contents of the messages
                 foreach (var message in messages)
                 {
-                    Logger.LogInfo(
-                        provider: _SMSprovider, 
+                    Logger.LogInfo(  // is this SMSBridgeID or ProviderMessageID
+                        provider: _SMSprovider,
                         eventType: "MessageDump",
-                        messageID: message.MessageID.ToString(),
+                        SMSBridgeID: message.MessageID,
+                        providerMessageID: default, // Provider message ID is not available here
                         details: $"Full Message Details: {JsonSerializer.Serialize(message)}"
                     );
                 }
             }
+           return Task.FromResult((IEnumerable<ReceiveSmsRequest>)messages);
+       }
 
-            return Task.FromResult((IEnumerable<ReceiveSmsRequest>)messages);
-        }
+       public Task<DeleteMessageResponse> DeleteReceivedMessage(SmsBridgeId smsBridgeId)
+       {
+           bool isRemoved = _receivedMessages.TryRemove(smsBridgeId, out _);
+           var response = new DeleteMessageResponse(
+               SMSBridgeID: smsBridgeId,
+               Deleted: isRemoved,
+               DeleteFeedback: isRemoved ? "Message deleted successfully" : "Message not found"
+           );
 
-        public Task<DeleteMessageResponse> DeleteReceivedMessage(Guid messageId)
-        {
-            bool isRemoved = _receivedMessages.TryRemove(messageId, out _);
-            var response = new DeleteMessageResponse(
-                MessageID: messageId.ToString(),
-                Deleted: isRemoved,
-                DeleteFeedback: isRemoved ? "Message deleted successfully" : "Message not found"
-            );
-
-            Logger.LogInfo(
+           Logger.LogInfo(
                 provider: _SMSprovider,
                 eventType: isRemoved ? "MessageDeleted" : "MessageDeleteFailed",
-                messageID: messageId.ToString(),
+                SMSBridgeID: smsBridgeId,
+                providerMessageID: default, // Provider message ID is not available here
                 details: isRemoved ? "Message successfully removed from the queue and saved to disk." : "Attempt to delete message failed. Message not found."
-            );
+           );
 
-            if (isRemoved)
-            {
-                // Save the updated dictionary to disk
-                SaveReceivedMessagesToDisk();
-            }
+           if (isRemoved)
+           {
+               // Save the updated dictionary to disk
+               SaveReceivedMessagesToDisk();
+           }
 
-            return Task.FromResult(response);
-        }
-    }
+           return Task.FromResult(response);
+       }
+   }
 }

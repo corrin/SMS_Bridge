@@ -1,11 +1,19 @@
 ﻿﻿using SMS_Bridge.Models;
 using SMS_Bridge.Services;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using static Microsoft.AspNetCore.Http.Results;
 
 namespace SMS_Bridge.SmsProviders
 {
     public class DiafaanSmsProvider : ISmsProvider
     {
-        public Task<(IResult Result, Guid MessageId)> SendSms(SendSmsRequest request)
+        private readonly ConcurrentDictionary<SmsBridgeId, ProviderMessageId> _smsBridgeToProviderId = new();
+
+        public Task<(IResult Result, SmsBridgeId smsBridgeId)> SendSms(SendSmsRequest request, SmsBridgeId smsBridgeId)
         {
             var result = Results.Problem(
                 detail: "Diafaan SMS provider is not implemented yet.",
@@ -13,15 +21,17 @@ namespace SMS_Bridge.SmsProviders
                 title: "Not Implemented"
             );
 
-            return Task.FromResult((Result: result, MessageId: Guid.Empty));
+            // Since this is a stub implementation, we don't need to create a real mapping
+            return Task.FromResult((Result: result, smsBridgeId));
         }
 
-        public Task<SmsStatus> GetMessageStatus(Guid messageId)
+        public Task<SmsStatus> GetMessageStatus(SmsBridgeId smsBridgeId)
         {
             Logger.LogWarning(
                 provider: SmsProviderType.Diafaan,
                 eventType: "NotImplemented",
-                messageID: messageId.ToString(),
+                SMSBridgeID: smsBridgeId,
+                providerMessageID: default,
                 details: "Status check attempted but eTXT provider is not implemented"
             );
             return Task.FromResult(SmsStatus.Failed);
@@ -32,22 +42,30 @@ namespace SMS_Bridge.SmsProviders
             Logger.LogWarning(
                 provider: SmsProviderType.Diafaan,
                 eventType: "NotImplemented",
-                messageID: "",
+                SMSBridgeID: default,
+                providerMessageID: default,
                 details: "Receive Messages attempted but Diafaan provider is not implemented"
             );
             return Task.FromResult(Enumerable.Empty<ReceiveSmsRequest>());
         }
 
-        public Task<DeleteMessageResponse> DeleteReceivedMessage(Guid messageId)
+        public ProviderMessageId? GetProviderMessageID(SmsBridgeId smsBridgeId)
+        {
+            // Since this is a stub implementation, we'll just throw an exception
+            throw new NotImplementedException("Diafaan SMS provider is not implemented yet.");
+        }
+
+        public Task<DeleteMessageResponse> DeleteReceivedMessage(SmsBridgeId smsBridgeId)
         {
             Logger.LogWarning(
                 provider: SmsProviderType.Diafaan,
                 eventType: "NotImplemented",
-                messageID: "",
+                SMSBridgeID: smsBridgeId,
+                providerMessageID: default,
                 details: "Delete Message attempted but Diafaan provider is not implemented"
             );
             return Task.FromResult(new DeleteMessageResponse(
-                MessageID: messageId.ToString(),
+                SMSBridgeID: smsBridgeId,
                 Deleted: false,
                 DeleteFeedback: "Delete operation not implemented for Diafaan provider"
             ));
@@ -58,7 +76,8 @@ namespace SMS_Bridge.SmsProviders
             Logger.LogWarning(
                 provider: SmsProviderType.Diafaan,
                 eventType: "NotImplemented",
-                messageID: "",
+                SMSBridgeID: default,
+                providerMessageID: default,
                 details: "Get Recent Statuses attempted but Diafaan provider is not implemented"
             );
             return Task.FromResult(Enumerable.Empty<MessageStatusRecord>());

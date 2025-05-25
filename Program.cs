@@ -37,6 +37,9 @@ else
 
 Console.WriteLine("About to start the main try/catch...");
 
+// Define configuredProviderType at a higher scope so it's available in the catch block
+SmsProviderType configuredProviderType = SmsProviderType.BuggyCodeNeedsFixing;
+
 try
 {
     Logger.Initialize();
@@ -47,6 +50,12 @@ try
 
     var smsProvider = configuration["SmsSettings:Provider"]?.ToLower() ??
         throw new InvalidOperationException("SMS provider must be configured in appsettings.json");
+
+    // Parse the provider type from configuration
+    if (!Enum.TryParse(smsProvider, true, out configuredProviderType))
+    {
+        configuredProviderType = SmsProviderType.BuggyCodeNeedsFixing;
+    }
 
     Configuration fileConfiguration = new Configuration();
     var apiKey = fileConfiguration.GetApiKey();
@@ -60,10 +69,10 @@ try
     if (isDebugMode && string.IsNullOrEmpty(configuration["SmsSettings:TestingPhoneNumber"]))
     {
         Logger.LogWarning(
-            provider: SmsProviderType.BuggyCodeNeedsFixing,
+            provider: configuredProviderType,
             eventType: "Configuration",
-            messageID: "",
-            details: "Debug mode is enabled but no testing phone number is configured"
+            details: "Debug mode is enabled but no testing phone number is configured",
+            SMSBridgeID: default
         );
     }
 
@@ -80,12 +89,8 @@ try
         var apiKey = configuration["SmsSettings:Providers:etxt:ApiKey"]!;
         var apiSecret = configuration["SmsSettings:Providers:etxt:ApiSecret"]!;
 
-        if (!Enum.TryParse(smsProvider, true, out SmsProviderType providerType))
-        {
-            throw new InvalidOperationException($"Unsupported SMS provider: {smsProvider}");
-        }
-
-        ISmsProvider provider = providerType switch
+        // We already parsed the provider type earlier, use it here
+        ISmsProvider provider = configuredProviderType switch
         {
             SmsProviderType.JustRemotePhone => new JustRemotePhoneSmsProvider(),
             SmsProviderType.Diafaan => new DiafaanSmsProvider(),
@@ -94,10 +99,10 @@ try
         };
 
         Logger.LogInfo(
-            provider: SmsProviderType.BuggyCodeNeedsFixing,
+            provider: configuredProviderType,
             eventType: "Configuration",
-            messageID: "",
-            details: $"Initialized SMS provider: {smsProvider}"
+            details: $"Initialized SMS provider: {smsProvider}",
+            SMSBridgeID: default
         );
 
         return provider;
@@ -120,10 +125,11 @@ try
                  || sent != apiKey)
                 {
                     Logger.LogWarning(
-                        provider: SmsProviderType.BuggyCodeNeedsFixing,
+                        provider: configuredProviderType,
                         eventType: "UnauthorizedAccess",
-                        messageID: "",
-                        details: $"Missing/invalid global API key from {http.Connection.RemoteIpAddress}");
+                        details: $"Missing/invalid global API key from {http.Connection.RemoteIpAddress}",
+                        SMSBridgeID: default
+                    );
                     return Results.Unauthorized();
                 }
             }
@@ -149,9 +155,8 @@ try
                     if (!string.IsNullOrEmpty(testNumber))
                     {
                         Logger.LogInfo(
-                            provider: SmsProviderType.BuggyCodeNeedsFixing,
+                            provider: configuredProviderType,
                             eventType: "DebugRedirect",
-                            messageID: "",
                             details: $"Redirecting SMS from {destinationNumber} to {testNumber}"
                         );
                         destinationNumber = testNumber;
@@ -161,12 +166,12 @@ try
 
             var modifiedRequest = request with { PhoneNumber = destinationNumber };
 
-            var messageID = smsQueueService.QueueSms(modifiedRequest);
+            var smsBridgeID = smsQueueService.QueueSms(modifiedRequest);
             return Results.Ok(new Result
             (
                 Success: true,
                 Message: "SMS queued for sending",
-                MessageID: messageID.ToString()
+                SMSBridgeID: smsBridgeID.ToString()
             ));
         }
         catch (Exception ex)
@@ -189,7 +194,9 @@ try
             return Results.NotFound("Unknown message ID");
         }
 
-        var status = await smsProvider.GetMessageStatus(providerMessageID);
+        // NEVER NEVER NEVER convert between provider message ID and SMSBridgeID
+        // They are both Guids.  They are never the same.
+        var status = await smsProvider.GetMessageStatus(new SmsBridgeId(SMSBridgeID));
         return Results.Ok(new MessageStatusResponse
         (
             MessageID: messageId,       
@@ -214,9 +221,8 @@ try
         catch (Exception ex)
         {
             Logger.LogError(
-                provider: SmsProviderType.BuggyCodeNeedsFixing,
+                provider: configuredProviderType,
                 eventType: "GetReceivedMessagesEndpoint",
-                messageID: "",
                 details: $"Error in received-sms endpoint: {ex.Message}"
             );
             return Results.Problem(
@@ -253,8 +259,8 @@ try
             Logger.LogError(
                 provider: CurrentSMSProvider,
                 eventType: "GetReceivedMessagesEndpoint",
-                messageID: "",
-                details: $"Error in received-sms endpoint: {ex.Message}"
+                details: $"Error in received-sms endpoint: {ex.Message}",
+                SMSBridgeID: default
             );
             return Results.Problem(
                 detail: "An error occurred while retrieving messages",
@@ -266,17 +272,19 @@ try
 
     smsGatewayApi.MapGet("/delete-received-sms/{messageId}", async (string messageId, ISmsProvider smsProvider) =>
     {
-        if (!Guid.TryParse(messageId, out var guid))
+        if (!Guid.TryParse(messageId, out var smsBridgeIdGuid))
         {
             return Results.BadRequest("Invalid message ID format");
         }
+        var smsBridgeId = new SmsBridgeId(smsBridgeIdGuid);
 
         if (smsProvider is not JustRemotePhoneSmsProvider provider)
         {
             return Results.BadRequest("Unsupported SMS provider");
         }
 
-        var result = await provider.DeleteReceivedMessage(guid);
+        // BUGGY.  Work out the call
+        var result = await provider.DeleteReceivedMessage(smsBridgeId);
         if (result.Deleted)
         {
             return Results.Ok(result);
@@ -307,9 +315,8 @@ try
         Testing.RegisterTestingEndpoints(testingApi, configuration);
 
         Logger.LogInfo(
-            provider: SmsProviderType.BuggyCodeNeedsFixing,
+            provider: configuredProviderType,
             eventType: "Configuration",
-            messageID: "",
             details: "Debug mode enabled - test endpoints registered"
         );
     }
@@ -322,9 +329,8 @@ try
     }
 
     Logger.LogInfo(
-        provider: SmsProviderType.BuggyCodeNeedsFixing,
+        provider: configuredProviderType,
         eventType: "Configuration",
-        messageID: "",
         details: $"SMS Gateway initialized in {(isDebugMode ? "debug" : "production")} mode"
     );
 
@@ -335,9 +341,8 @@ catch (Exception ex)
     Console.WriteLine($"Application failed to start. About to log: {ex}");
 
     Logger.LogCritical(
-        provider: SmsProviderType.BuggyCodeNeedsFixing,
+        provider: configuredProviderType,
         eventType: "StartupFailure",
-        messageID: "",
         details: $"Application failed to start: {ex.Message}"
     );
     throw;

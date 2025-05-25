@@ -1,7 +1,7 @@
 ﻿namespace SMS_Bridge.Models
 {
     public record ReceiveSmsRequest(
-        Guid MessageID,
+        SmsBridgeId MessageID,
         string FromNumber,
         string MessageText,
         DateTime ReceivedAt

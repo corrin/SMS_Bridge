@@ -8,8 +8,8 @@ namespace SMS_Bridge.Services
     {
         private readonly ISmsProvider _provider;
         private readonly SmsProviderType _providerType;
-        private readonly ConcurrentQueue<(SendSmsRequest Request, Guid SMSBridgeID)> _smsQueue = new();
-        private readonly ConcurrentDictionary<Guid, Guid> _smsbridgetoproviderid = new();
+        private readonly ConcurrentQueue<(SendSmsRequest Request, SmsBridgeId smsBridgeId)> _smsQueue = new();
+        private readonly ConcurrentDictionary<SmsBridgeId, ProviderMessageId> _smsbridgetoproviderid = new();
         private readonly Timer _processTimer;
         private const int PROCESS_INTERVAL_MS = 5000;
 
@@ -29,64 +29,82 @@ namespace SMS_Bridge.Services
             Logger.LogInfo(
                 provider: _providerType,
                 eventType: "Initialization",
-                messageID: "",
+                SMSBridgeID: default,
+                providerMessageID: default,
                 details: "SMS Queue initialized");
         }
 
-        public Guid QueueSms(SendSmsRequest request)
+        public SmsBridgeId QueueSms(SendSmsRequest request)
         {
             if (request == null)
             {
                 throw new ArgumentNullException(nameof(request));
             }
 
-            var SMSBridgeID = Guid.NewGuid();
-            _smsQueue.Enqueue((request, SMSBridgeID));
+            var smsBridgeId = new SmsBridgeId(Guid.NewGuid());
+            _smsQueue.Enqueue((request, smsBridgeId));
 
             Logger.LogInfo(
                 provider: _providerType,
                 eventType: "MessageQueued",
-                messageID: SMSBridgeID.ToString(),
+                SMSBridgeID: smsBridgeId,
+                providerMessageID: default, // providerMessageID is not available when queuing
                 details: $"SMS queued for {request.PhoneNumber}");
 
-            return SMSBridgeID;
+            return smsBridgeId;
         }
 
         private async void ProcessQueue(object? state)
         {
             if (_smsQueue.TryDequeue(out var item))
             {
-                var (request, SMSBridgeID) = item;
+                var (request, smsBridgeId) = item;
                 try
                 {
-                    var (result, providerMessageID) = await _provider.SendSms(request);
+                    var (result, returnedSmsBridgeId) = await _provider.SendSms(request, smsBridgeId);
                     if (result is IStatusCodeHttpResult statusCodeResult && statusCodeResult.StatusCode != 200)
                     {
                         throw new InvalidOperationException($"SMS send failed with status {statusCodeResult.StatusCode}");
                     }
 
-                    _smsbridgetoproviderid[SMSBridgeID] = providerMessageID;
+                    // Get the provider message ID from the SMS provider
+                    var providerMessageId = _provider.GetProviderMessageID(smsBridgeId);
+                    if (providerMessageId != null)
+                    {
+                        _smsbridgetoproviderid[smsBridgeId] = providerMessageId.Value;
+                    }
 
                     Logger.LogInfo(
                         provider: _providerType,
                         eventType: "MessageSent",
-                        messageID: SMSBridgeID.ToString(),
-                        details: $"Mapped to providerMessageID (SMSBridgeID): {providerMessageID} ({SMSBridgeID.ToString()}), SMS sent to {request.PhoneNumber}");
+                        SMSBridgeID: smsBridgeId,
+                        providerMessageID: providerMessageId ?? default,
+                        details: $"Mapped to providerMessageID (SMSBridgeID): {(providerMessageId?.ToString() ?? "unknown")} ({smsBridgeId}), SMS sent to {request.PhoneNumber}");
                 }
                 catch (Exception ex)
                 {
                     Logger.LogError(
                         provider: _providerType,
                         eventType: "SendFailed",
-                        messageID: SMSBridgeID.ToString(),
+                        SMSBridgeID: smsBridgeId,
+                        providerMessageID: default, // providerMessageID might not be available on failure
                         details: $"Failed to send SMS to {request.PhoneNumber}: {ex.Message}");
                 }
             }
         }
 
-        public bool TryGetProviderMessageID(Guid SMSBridgeID, out Guid providerMessageID)
+        public bool TryGetProviderMessageID(Guid smsBridgeIdGuid, out Guid providerMessageIdGuid)
         {
-            return _smsbridgetoproviderid.TryGetValue(SMSBridgeID, out providerMessageID);
+            var smsBridgeId = new SmsBridgeId(smsBridgeIdGuid);
+            providerMessageIdGuid = Guid.Empty;
+            
+            if (_smsbridgetoproviderid.TryGetValue(smsBridgeId, out var providerMessageId))
+            {
+                providerMessageIdGuid = providerMessageId.Value;
+                return true;
+            }
+            
+            return false;
         }
     }
 }
