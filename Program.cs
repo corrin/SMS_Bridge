@@ -184,7 +184,7 @@ try
             return Results.BadRequest("Invalid message ID format");
         }
 
-        if (!smsQueueService.TryGetProviderMessageId(SMSBridgeID, out var providerMessageID))
+        if (!smsQueueService.TryGetProviderMessageID(SMSBridgeID, out var providerMessageID))
         {
             return Results.NotFound("Unknown message ID");
         }
@@ -192,7 +192,7 @@ try
         var status = await smsProvider.GetMessageStatus(providerMessageID);
         return Results.Ok(new MessageStatusResponse
         (
-            MessageID: messageId,
+            MessageID: messageId,       
             Status: status
         ));
     });
