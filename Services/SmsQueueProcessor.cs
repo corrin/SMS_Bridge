@@ -8,8 +8,8 @@ namespace SMS_Bridge.Services
     {
         private readonly ISmsProvider _provider;
         private readonly SmsProviderType _providerType;
-        private readonly ConcurrentQueue<(SendSmsRequest Request, Guid ExternalId)> _smsQueue = new();
-        private readonly ConcurrentDictionary<Guid, Guid> _externalToInternal = new();
+        private readonly ConcurrentQueue<(SendSmsRequest Request, Guid SMSBridgeID)> _smsQueue = new();
+        private readonly ConcurrentDictionary<Guid, Guid> _smsbridgetoproviderid = new();
         private readonly Timer _processTimer;
         private const int PROCESS_INTERVAL_MS = 5000;
 
@@ -40,53 +40,53 @@ namespace SMS_Bridge.Services
                 throw new ArgumentNullException(nameof(request));
             }
 
-            var externalId = Guid.NewGuid();
-            _smsQueue.Enqueue((request, externalId));
+            var SMSBridgeID = Guid.NewGuid();
+            _smsQueue.Enqueue((request, SMSBridgeID));
 
             Logger.LogInfo(
                 provider: _providerType,
                 eventType: "MessageQueued",
-                messageID: externalId.ToString(),
+                messageID: SMSBridgeIDId.ToString(),
                 details: $"SMS queued for {request.PhoneNumber}");
 
-            return externalId;
+            return SMSBridgeID;
         }
 
         private async void ProcessQueue(object? state)
         {
             if (_smsQueue.TryDequeue(out var item))
             {
-                var (request, externalId) = item;
+                var (request, SMSBridgeID) = item;
                 try
                 {
-                    var (result, internalId) = await _provider.SendSms(request);
+                    var (result, providerMessageID) = await _provider.SendSms(request);
                     if (result is IStatusCodeHttpResult statusCodeResult && statusCodeResult.StatusCode != 200)
                     {
                         throw new InvalidOperationException($"SMS send failed with status {statusCodeResult.StatusCode}");
                     }
 
-                    _externalToInternal[externalId] = internalId;
+                    _smsbridgetoproviderid[SMSBridgeID] = providerMessageID;
 
                     Logger.LogInfo(
                         provider: _providerType,
                         eventType: "MessageSent",
-                        messageID: externalId.ToString(),
-                        details: $"Mapped to internalId (SMSBridgeID): {internalId}, SMS sent to {request.PhoneNumber}");
+                        messageID: SMSBridgeID.ToString(),
+                        details: $"Mapped to providerMessageID (SMSBridgeID): {providerMessageID} ({SMSBridgeID.ToString()}), SMS sent to {request.PhoneNumber}");
                 }
                 catch (Exception ex)
                 {
                     Logger.LogError(
                         provider: _providerType,
                         eventType: "SendFailed",
-                        messageID: externalId.ToString(),
+                        messageID: SMSBridgeID.ToString(),
                         details: $"Failed to send SMS to {request.PhoneNumber}: {ex.Message}");
                 }
             }
         }
 
-        public bool TryGetInternalId(Guid externalId, out Guid internalId)
+        public bool TryGetProviderMessageID(Guid SMSBridgeID, out Guid providerMessageID)
         {
-            return _externalToInternal.TryGetValue(externalId, out internalId);
+            return _smsbridgetoproviderid.TryGetValue(SMSBridgeID, out providerMessageID);
         }
     }
 }

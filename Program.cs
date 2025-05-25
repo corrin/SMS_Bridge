@@ -175,21 +175,21 @@ try
         }
     });
 
-    // Note externalID is the SMSBridgeID - it's the ID we use when talking to external systems (OD mostly)
-    // and internalID is the ID used internally by providers (e.g. eTXT, Diafaan, etc.)
+    // Note SMSBridgeID is the SMSBridgeID - it's the ID we use when talking to external systems (OD mostly)
+    // and providerMessageID is the ID used internally by providers (e.g. eTXT, Diafaan, etc.)
     smsGatewayApi.MapGet("/sms-status/{messageId}", async (string messageId, ISmsProvider smsProvider, SmsQueueService smsQueueService) =>
     {
-        if (!Guid.TryParse(messageId, out var externalId))
+        if (!Guid.TryParse(messageId, out var SMSBridgeID))
         {
             return Results.BadRequest("Invalid message ID format");
         }
 
-        if (!smsQueueService.TryGetInternalId(externalId, out var internalId))
+        if (!smsQueueService.TryGetProviderMessageId(SMSBridgeID, out var providerMessageID))
         {
             return Results.NotFound("Unknown message ID");
         }
 
-        var status = await smsProvider.GetMessageStatus(internalId);
+        var status = await smsProvider.GetMessageStatus(providerMessageID);
         return Results.Ok(new MessageStatusResponse
         (
             MessageID: messageId,

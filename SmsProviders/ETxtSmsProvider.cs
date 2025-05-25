@@ -92,15 +92,15 @@ namespace SMS_Bridge.SmsProviders
             }
         }
 
-        public Task<SmsStatus> GetMessageStatus(Guid messageId)
+        public Task<SmsStatus> GetMessageStatus(Guid providerMessageID)
         {
             // Mirror JustRemotePhone behavior: no status-by-list, only per-message GET
-            return GetStatusInternal(messageId);
+            return GetStatusProviderID(providerMessageID);
         }
 
-        private async Task<SmsStatus> GetStatusInternal(Guid messageId)
+        private async Task<SmsStatus> GetStatusProviderID(Guid providerMessageID)
         {
-            var url = $"{BaseUrl}/messages/{messageId}";
+            var url = $"{BaseUrl}/messages/{providerMessageID}";
             var req = new HttpRequestMessage(HttpMethod.Get, url);
             AddBasicAuthHeader(req);
 
