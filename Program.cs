@@ -82,19 +82,22 @@ try
         options.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonSerializerContext.Default);
     });
 
+    builder.Services.AddSingleton(services => new PrincipleBridgeNotifier(new HttpClient(), configuration));
+
     // Initialize the appropriate SMS provider based on configuration
     builder.Services.AddSingleton<ISmsProvider>(services =>
     {
         var httpClient = new HttpClient();
         var apiKey = configuration["SmsSettings:Providers:etxt:ApiKey"]!;
         var apiSecret = configuration["SmsSettings:Providers:etxt:ApiSecret"]!;
+        var principleBridgeNotifier = services.GetRequiredService<PrincipleBridgeNotifier>();
 
         // We already parsed the provider type earlier, use it here
         ISmsProvider provider = configuredProviderType switch
         {
-            SmsProviderType.JustRemotePhone => new JustRemotePhoneSmsProvider(),
-            SmsProviderType.Diafaan => new DiafaanSmsProvider(),
-            SmsProviderType.ETxt => CreateETxtProvider(configuration, fileConfiguration, httpClient, apiKey, apiSecret),
+            SmsProviderType.JustRemotePhone => new JustRemotePhoneSmsProvider(principleBridgeNotifier),
+            SmsProviderType.Diafaan => new DiafaanSmsProvider(principleBridgeNotifier),
+            SmsProviderType.ETxt => CreateETxtProvider(configuration, fileConfiguration, httpClient, apiKey, apiSecret, principleBridgeNotifier),
             _ => throw new InvalidOperationException($"Unsupported SMS provider: {smsProvider}") // This case should not be reached if parsing is successful
         };
 
@@ -352,7 +355,7 @@ catch (Exception ex)
 
 
 // Factory method to create ETxtSmsProvider with required dependencies
-static ETxtSmsProvider CreateETxtProvider(IConfiguration configuration, Configuration fileConfiguration, HttpClient httpClient, string apiKey, string apiSecret)
+static ETxtSmsProvider CreateETxtProvider(IConfiguration configuration, Configuration fileConfiguration, HttpClient httpClient, string apiKey, string apiSecret, PrincipleBridgeNotifier principleBridgeNotifier)
 {
-    return new ETxtSmsProvider(httpClient, apiKey, apiSecret, configuration, fileConfiguration);
+    return new ETxtSmsProvider(httpClient, apiKey, apiSecret, configuration, fileConfiguration, principleBridgeNotifier);
 }

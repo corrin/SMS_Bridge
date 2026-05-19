@@ -25,10 +25,10 @@ namespace SMS_Bridge.SmsProviders
         private readonly ConcurrentDictionary<SmsBridgeId, (ProviderMessageId ProviderMessageID, SmsStatus Status, DateTime SentAt, DateTime StatusAt)> _messageStatuses = new();
         private readonly SmsReceivedHandler _smsReceivedHandler;
         
-        public DiafaanSmsProvider(HttpClient httpClient, IConfiguration configuration)
+        public DiafaanSmsProvider(HttpClient httpClient, IConfiguration configuration, PrincipleBridgeNotifier? principleBridgeNotifier = null)
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
-            _smsReceivedHandler = new SmsReceivedHandler(SmsProviderType.Diafaan);
+            _smsReceivedHandler = new SmsReceivedHandler(SmsProviderType.Diafaan, principleBridgeNotifier);
             
             // Get configuration from appsettings.json
             _apiUrl = configuration["SmsSettings:Providers:diafaan:ApiUrl"] ?? "https://api.diafaan.com/";
@@ -46,10 +46,10 @@ namespace SMS_Bridge.SmsProviders
         }
         
         // Constructor for backward compatibility or testing
-        public DiafaanSmsProvider()
+        public DiafaanSmsProvider(PrincipleBridgeNotifier? principleBridgeNotifier = null)
         {
             _httpClient = new HttpClient();
-            _smsReceivedHandler = new SmsReceivedHandler(SmsProviderType.Diafaan);
+            _smsReceivedHandler = new SmsReceivedHandler(SmsProviderType.Diafaan, principleBridgeNotifier);
             _apiUrl = "DUMMY VALUE.  Check appsettings.json";
             _apiUsername = "default";
             _apiPassword = "default";

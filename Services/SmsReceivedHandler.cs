@@ -15,6 +15,7 @@ namespace SMS_Bridge.Services
     public class SmsReceivedHandler
     {
         private readonly SmsProviderType _SMSprovider; 
+        private readonly PrincipleBridgeNotifier? _principleBridgeNotifier;
         private static DateTime _lastZeroMessagesLogTime = DateTime.Now;  // Used to throttle the "No messages found" log
         private static readonly ConcurrentDictionary<SmsBridgeId, (ReceiveSmsRequest Sms, DateTime ReceivedAt)> _receivedMessages = new();
         private readonly object _saveLock = new object(); // Prevents concurrent file access during save operations
@@ -24,9 +25,10 @@ namespace SMS_Bridge.Services
             $"{Environment.MachineName}_received_sms.json"
         );
 
-        public SmsReceivedHandler(SmsProviderType provider) 
+        public SmsReceivedHandler(SmsProviderType provider, PrincipleBridgeNotifier? principleBridgeNotifier = null) 
         {
             _SMSprovider = provider; 
+            _principleBridgeNotifier = principleBridgeNotifier;
             LoadReceivedMessagesFromDisk();
         }
 
@@ -53,6 +55,33 @@ namespace SMS_Bridge.Services
             _receivedMessages.TryAdd(smsBridgeId, (receivedSms, DateTime.Now));
 
             SaveReceivedMessagesToDisk();
+            _ = NotifyPrincipleBridgeAsync(receivedSms);
+        }
+
+        private async Task NotifyPrincipleBridgeAsync(ReceiveSmsRequest receivedSms)
+        {
+            if (_principleBridgeNotifier == null)
+            {
+                return;
+            }
+
+            var notified = await _principleBridgeNotifier.NotifyInboundSmsAsync(_SMSprovider, receivedSms);
+            if (!notified || !_principleBridgeNotifier.DeleteAfterSuccessfulCallback)
+            {
+                return;
+            }
+
+            if (_receivedMessages.TryRemove(receivedSms.MessageID, out _))
+            {
+                SaveReceivedMessagesToDisk();
+                Logger.LogInfo(
+                    provider: _SMSprovider,
+                    eventType: "PrincipleBridgeCallbackDeleted",
+                    SMSBridgeID: receivedSms.MessageID,
+                    providerMessageID: receivedSms.ProviderMessageID,
+                    details: "Deleted received SMS after successful Principle bridge callback"
+                );
+            }
         }
 
         private void SaveReceivedMessagesToDisk()

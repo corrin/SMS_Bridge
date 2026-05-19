@@ -58,9 +58,9 @@ namespace SMS_Bridge.SmsProviders
         }
 
 
-        public JustRemotePhoneSmsProvider()
+        public JustRemotePhoneSmsProvider(PrincipleBridgeNotifier? principleBridgeNotifier = null)
         {
-            _smsReceivedHandler = new SmsReceivedHandler(SmsProviderType.JustRemotePhone);
+            _smsReceivedHandler = new SmsReceivedHandler(SmsProviderType.JustRemotePhone, principleBridgeNotifier);
 
             _app.ApplicationStateChanged += OnApplicationStateChanged;
             _app.Phone.SMSSendResult += OnSMSSendResult;

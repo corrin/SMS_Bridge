@@ -31,12 +31,12 @@ namespace SMS_Bridge.SmsProviders
         private readonly ConcurrentDictionary<SmsBridgeId, ProviderMessageId> _smsBridgeToProviderId = new();
 
 
-        public ETxtSmsProvider(HttpClient httpClient, string apiKey, string apiSecret, IConfiguration configuration, Configuration fileConfiguration)
+        public ETxtSmsProvider(HttpClient httpClient, string apiKey, string apiSecret, IConfiguration configuration, Configuration fileConfiguration, PrincipleBridgeNotifier? principleBridgeNotifier = null)
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             _apiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey));
             _apiSecret = apiSecret ?? throw new ArgumentNullException(nameof(apiSecret));
-            _smsReceivedHandler = new SmsReceivedHandler(SmsProviderType.ETxt); 
+            _smsReceivedHandler = new SmsReceivedHandler(SmsProviderType.ETxt, principleBridgeNotifier); 
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _fileConfiguration = fileConfiguration ?? throw new ArgumentNullException(nameof(fileConfiguration));
 

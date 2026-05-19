@@ -19,6 +19,7 @@ namespace SMS_Bridge
     [JsonSerializable(typeof(BulkSmsResponse))]
     [JsonSerializable(typeof(DebugStatusResponse))]
     [JsonSerializable(typeof(IEnumerable<MessageStatusRecord>))]
+    [JsonSerializable(typeof(PrincipleBridgeInboundSmsNotification))]
 
     internal partial class AppJsonSerializerContext : JsonSerializerContext
     {
