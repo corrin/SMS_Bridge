@@ -1,4 +1,4 @@
-﻿﻿using SMS_Bridge.Models;
+﻿using SMS_Bridge.Models;
 using SMS_Bridge.SmsProviders;
 using SMS_Bridge.Services;
 using System;
@@ -31,12 +31,12 @@ namespace SMS_Bridge.SmsProviders
         private readonly ConcurrentDictionary<SmsBridgeId, ProviderMessageId> _smsBridgeToProviderId = new();
 
 
-        public ETxtSmsProvider(HttpClient httpClient, string apiKey, string apiSecret, IConfiguration configuration, Configuration fileConfiguration, PrincipleBridgeNotifier? principleBridgeNotifier = null)
+        public ETxtSmsProvider(HttpClient httpClient, string apiKey, string apiSecret, IConfiguration configuration, Configuration fileConfiguration, PrincipleInboundSmsWriter? principleInboundSmsWriter = null)
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             _apiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey));
             _apiSecret = apiSecret ?? throw new ArgumentNullException(nameof(apiSecret));
-            _smsReceivedHandler = new SmsReceivedHandler(SmsProviderType.ETxt, principleBridgeNotifier); 
+            _smsReceivedHandler = new SmsReceivedHandler(SmsProviderType.ETxt, principleInboundSmsWriter); 
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _fileConfiguration = fileConfiguration ?? throw new ArgumentNullException(nameof(fileConfiguration));
 

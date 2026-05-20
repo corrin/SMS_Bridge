@@ -1,4 +1,4 @@
-﻿﻿using System;
+﻿using System;
 using SMS_Bridge.Models;
 using JustRemotePhone.RemotePhoneService;
 using SMS_Bridge.Services;
@@ -58,9 +58,9 @@ namespace SMS_Bridge.SmsProviders
         }
 
 
-        public JustRemotePhoneSmsProvider(PrincipleBridgeNotifier? principleBridgeNotifier = null)
+        public JustRemotePhoneSmsProvider(PrincipleInboundSmsWriter? principleInboundSmsWriter = null)
         {
-            _smsReceivedHandler = new SmsReceivedHandler(SmsProviderType.JustRemotePhone, principleBridgeNotifier);
+            _smsReceivedHandler = new SmsReceivedHandler(SmsProviderType.JustRemotePhone, principleInboundSmsWriter);
 
             _app.ApplicationStateChanged += OnApplicationStateChanged;
             _app.Phone.SMSSendResult += OnSMSSendResult;

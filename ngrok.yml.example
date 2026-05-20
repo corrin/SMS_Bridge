@@ -1,0 +1,7 @@
+version: "2"
+
+tunnels:
+  sms-bridge:
+    addr: 5170
+    proto: http
+    domain: example.ngrok-free.app

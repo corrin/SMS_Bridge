@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "ngrok",
+      "type": "shell",
+      "command": "ngrok start --config \"$HOME/.config/ngrok/ngrok.yml\" --config ngrok.yml sms-bridge",
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}
