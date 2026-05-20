@@ -15,18 +15,20 @@ namespace SMS_Bridge.Services
     public class SmsReceivedHandler
     {
         private readonly SmsProviderType _SMSprovider; 
+        private readonly PrincipleInboundSmsWriter? _principleInboundSmsWriter;
         private static DateTime _lastZeroMessagesLogTime = DateTime.Now;  // Used to throttle the "No messages found" log
         private static readonly ConcurrentDictionary<SmsBridgeId, (ReceiveSmsRequest Sms, DateTime ReceivedAt)> _receivedMessages = new();
-        private readonly object _saveLock = new object(); // Prevents concurrent file access during save operations
+        private static readonly object SaveLock = new object(); // Prevents concurrent file access during save operations
         private static readonly string ReceivedMessagesDirectory = @"\\OPENDENTAL\OD Letters\msg_guids\";
         private static readonly string ReceivedMessagesFilePath = Path.Combine(
             ReceivedMessagesDirectory,
             $"{Environment.MachineName}_received_sms.json"
         );
 
-        public SmsReceivedHandler(SmsProviderType provider) 
+        public SmsReceivedHandler(SmsProviderType provider, PrincipleInboundSmsWriter? principleInboundSmsWriter = null) 
         {
             _SMSprovider = provider; 
+            _principleInboundSmsWriter = principleInboundSmsWriter;
             LoadReceivedMessagesFromDisk();
         }
 
@@ -53,11 +55,22 @@ namespace SMS_Bridge.Services
             _receivedMessages.TryAdd(smsBridgeId, (receivedSms, DateTime.Now));
 
             SaveReceivedMessagesToDisk();
+            _ = WritePrincipleInboundSmsAsync(receivedSms);
+        }
+
+        private async Task WritePrincipleInboundSmsAsync(ReceiveSmsRequest receivedSms)
+        {
+            if (_principleInboundSmsWriter == null)
+            {
+                return;
+            }
+
+            await _principleInboundSmsWriter.TryWriteInboundReplyAsync(_SMSprovider, receivedSms);
         }
 
         private void SaveReceivedMessagesToDisk()
         {
-            lock (_saveLock)
+            lock (SaveLock)
             {
                 try
                 {

@@ -82,21 +82,33 @@ try
         options.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonSerializerContext.Default);
     });
 
+    builder.Services.AddSingleton(fileConfiguration);
+    builder.Services.AddSingleton<PrincipleOutboundSmsStore>();
+    builder.Services.AddSingleton<PrincipleApiClient>(services =>
+    {
+        var httpClient = new HttpClient();
+        return new PrincipleApiClient(httpClient, configuration, fileConfiguration);
+    });
+    builder.Services.AddSingleton<PrincipleWebhookService>();
+    builder.Services.AddSingleton<PrincipleInboundSmsWriter>();
+
     // Initialize the appropriate SMS provider based on configuration
     builder.Services.AddSingleton<ISmsProvider>(services =>
     {
         var httpClient = new HttpClient();
         var apiKey = configuration["SmsSettings:Providers:etxt:ApiKey"]!;
         var apiSecret = configuration["SmsSettings:Providers:etxt:ApiSecret"]!;
+        var principleInboundSmsWriter = services.GetService<PrincipleInboundSmsWriter>();
 
         // We already parsed the provider type earlier, use it here
         ISmsProvider provider = configuredProviderType switch
         {
-            SmsProviderType.JustRemotePhone => new JustRemotePhoneSmsProvider(),
-            SmsProviderType.Diafaan => new DiafaanSmsProvider(),
-            SmsProviderType.ETxt => CreateETxtProvider(configuration, fileConfiguration, httpClient, apiKey, apiSecret),
+            SmsProviderType.JustRemotePhone => new JustRemotePhoneSmsProvider(principleInboundSmsWriter),
+            SmsProviderType.Diafaan => new DiafaanSmsProvider(principleInboundSmsWriter),
+            SmsProviderType.ETxt => CreateETxtProvider(configuration, fileConfiguration, httpClient, apiKey, apiSecret, principleInboundSmsWriter),
             _ => throw new InvalidOperationException($"Unsupported SMS provider: {smsProvider}") // This case should not be reached if parsing is successful
         };
+
 
         Logger.LogInfo(
             provider: configuredProviderType,
@@ -328,6 +340,10 @@ try
         var webhooksApi = app.MapGroup("/smsgateway/webhooks");
         Webhooks.RegisterWebhookEndpoints(webhooksApi, builder.Configuration);
 
+        webhooksApi.MapPost("/principle", async (HttpRequest request, PrincipleWebhookService principleWebhook) =>
+        {
+            return await principleWebhook.HandleAsync(request);
+        });
     }
 
     Logger.LogInfo(
@@ -352,7 +368,7 @@ catch (Exception ex)
 
 
 // Factory method to create ETxtSmsProvider with required dependencies
-static ETxtSmsProvider CreateETxtProvider(IConfiguration configuration, Configuration fileConfiguration, HttpClient httpClient, string apiKey, string apiSecret)
+static ETxtSmsProvider CreateETxtProvider(IConfiguration configuration, Configuration fileConfiguration, HttpClient httpClient, string apiKey, string apiSecret, PrincipleInboundSmsWriter? principleInboundSmsWriter)
 {
-    return new ETxtSmsProvider(httpClient, apiKey, apiSecret, configuration, fileConfiguration);
+    return new ETxtSmsProvider(httpClient, apiKey, apiSecret, configuration, fileConfiguration, principleInboundSmsWriter);
 }

@@ -364,3 +364,5 @@ FodyWeavers.xsd
 /analysis
 /od_logs
 *.png
+ngrok.yml
+.env
