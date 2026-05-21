@@ -65,7 +65,12 @@ try
 
     var productionMachines = configuration.GetSection("SmsSettings:ProductionMachines")
         .Get<string[]>() ?? Array.Empty<string>();
-    var isDebugMode = !productionMachines.Contains(Environment.MachineName);
+
+    // The JSON lists all production machines
+    // If we are different to all of them, then we are in debug mode
+    var isDebugMode = !productionMachines
+        .Any(name => string.Equals(name, Environment.MachineName, StringComparison.OrdinalIgnoreCase));
+
 
     if (isDebugMode && string.IsNullOrEmpty(configuration["SmsSettings:TestingPhoneNumber"]))
     {
@@ -96,8 +101,8 @@ try
     builder.Services.AddSingleton<ISmsProvider>(services =>
     {
         var httpClient = new HttpClient();
-        var apiKey = configuration["SmsSettings:Providers:etxt:ApiKey"]!;
-        var apiSecret = configuration["SmsSettings:Providers:etxt:ApiSecret"]!;
+        var apiKey = fileConfiguration.GetRequiredProviderSetting("etxt", "API_KEY");
+        var apiSecret = fileConfiguration.GetRequiredProviderSetting("etxt", "API_SECRET");
         var principleInboundSmsWriter = services.GetService<PrincipleInboundSmsWriter>();
 
         // We already parsed the provider type earlier, use it here
