@@ -36,7 +36,7 @@ namespace SMS_Bridge.Services
             }
 
             var body = await ReadBodyAsync(request);
-            var secret = _fileConfiguration.GetSetting("PRINCIPLE_WEBHOOK_SECRET") ?? "";
+            var secret = _fileConfiguration.GetSetting("Principle:WEBHOOK_SECRET") ?? "";
             if (!string.IsNullOrWhiteSpace(secret))
             {
                 if (!request.Headers.TryGetValue(SignatureHeader, out var signature) ||

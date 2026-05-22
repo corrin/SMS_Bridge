@@ -6,7 +6,7 @@ namespace SMS_Bridge.Services
     public class PrincipleOutboundSmsStore
     {
         private static readonly SemaphoreSlim SaveLock = new(1, 1);
-        private static readonly string DirectoryPath = @"\\OPENDENTAL\OD Letters\msg_guids\";
+        private static readonly string DirectoryPath = Path.Combine(AppData.BasePath, "msg_guids");
         private static readonly string FilePath = Path.Combine(
             DirectoryPath,
             $"{Environment.MachineName}_principle_sms_map.json"

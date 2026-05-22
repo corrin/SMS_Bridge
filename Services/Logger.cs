@@ -1,4 +1,4 @@
-﻿﻿﻿﻿using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
 using SMS_Bridge.Models;
 using SMS_Bridge.SmsProviders;
@@ -7,17 +7,14 @@ namespace SMS_Bridge.Services
 {
     public static class Logger
     {
-        private const string LOG_PATH = @"\\OPENDENTAL\OD Letters\od_logs";
+        private static readonly string LOG_PATH = Path.Combine(AppData.BasePath, "od_logs");
 
 
         public static void Initialize()
         {
             try
             {
-                if (!Directory.Exists(LOG_PATH))
-                {
-                    throw new InvalidOperationException($"Log directory does not exist: {LOG_PATH}");
-                }
+                Directory.CreateDirectory(LOG_PATH);
 
                 var testFile = Path.Combine(LOG_PATH, "test.log");
                 File.WriteAllText(testFile, "Logging test");

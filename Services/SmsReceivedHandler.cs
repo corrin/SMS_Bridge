@@ -19,7 +19,7 @@ namespace SMS_Bridge.Services
         private static DateTime _lastZeroMessagesLogTime = DateTime.Now;  // Used to throttle the "No messages found" log
         private static readonly ConcurrentDictionary<SmsBridgeId, (ReceiveSmsRequest Sms, DateTime ReceivedAt)> _receivedMessages = new();
         private static readonly object SaveLock = new object(); // Prevents concurrent file access during save operations
-        private static readonly string ReceivedMessagesDirectory = @"\\OPENDENTAL\OD Letters\msg_guids\";
+        private static readonly string ReceivedMessagesDirectory = Path.Combine(AppData.BasePath, "msg_guids");
         private static readonly string ReceivedMessagesFilePath = Path.Combine(
             ReceivedMessagesDirectory,
             $"{Environment.MachineName}_received_sms.json"

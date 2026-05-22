@@ -51,6 +51,7 @@ try
     // Configuration setup and validation
     var configuration = builder.Configuration;
     configuration.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+    configuration.AddJsonFile(Path.Combine(AppData.BasePath, "install-settings.json"), optional: false, reloadOnChange: true);
 
     var smsProvider = configuration["SmsSettings:Provider"]?.ToLower() ??
         throw new InvalidOperationException("SMS provider must be configured in appsettings.json");
@@ -60,7 +61,7 @@ try
         configuredProviderType = SmsProviderType.BuggyCodeNeedsFixing;
     }
 
-    Configuration fileConfiguration = new Configuration();
+    Configuration fileConfiguration = new Configuration(configuration);
     var apiKey = fileConfiguration.GetApiKey();
 
     var productionMachines = configuration.GetSection("SmsSettings:ProductionMachines")
