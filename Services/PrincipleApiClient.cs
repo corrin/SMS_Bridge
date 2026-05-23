@@ -15,13 +15,17 @@ namespace SMS_Bridge.Services
         public PrincipleApiClient(HttpClient httpClient, IConfiguration configuration, Configuration fileConfiguration)
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
-            _options = configuration.GetSection("Principle").Get<PrincipleOptions>() ?? new PrincipleOptions();
+            _options = configuration.GetSection("Principle").Get<PrincipleOptions>()!;
             _options.ApiBaseUrl = _options.ApiBaseUrl.TrimEnd('/');
-            _apiKey = fileConfiguration.GetSetting("Principle:API_KEY") ?? "";
+            _apiKey = fileConfiguration.GetSetting("Principle:API_KEY");
 
             if (_options.Enabled && string.IsNullOrWhiteSpace(_apiKey))
             {
-                throw new InvalidOperationException("Principle:API_KEY must be configured when Principle integration is enabled.");
+                throw new InvalidOperationException("Principle.API_KEY must be configured when Principle integration is enabled.");
+            }
+            else
+            {
+                // Happy case handled below
             }
         }
 

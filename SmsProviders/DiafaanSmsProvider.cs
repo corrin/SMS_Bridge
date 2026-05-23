@@ -25,40 +25,15 @@ namespace SMS_Bridge.SmsProviders
         private readonly ConcurrentDictionary<SmsBridgeId, (ProviderMessageId ProviderMessageID, SmsStatus Status, DateTime SentAt, DateTime StatusAt)> _messageStatuses = new();
         private readonly SmsReceivedHandler _smsReceivedHandler;
         
-        public DiafaanSmsProvider(HttpClient httpClient, IConfiguration configuration, PrincipleInboundSmsWriter? principleInboundSmsWriter = null)
+        public DiafaanSmsProvider(HttpClient httpClient, IConfiguration configuration, SmsReceivedHandler smsReceivedHandler)
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
-            _smsReceivedHandler = new SmsReceivedHandler(SmsProviderType.Diafaan, principleInboundSmsWriter);
+            _smsReceivedHandler = smsReceivedHandler;
             
             // Get configuration from appsettings.json
-            _apiUrl = configuration["SmsSettings:Providers:diafaan:ApiUrl"] ?? "https://api.diafaan.com/";
-            _apiUsername = configuration["SmsSettings:Providers:diafaan:Username"] ?? "default";
-            _apiPassword = configuration["SmsSettings:Providers:diafaan:Password"] ?? "default";
-            
-            if (_apiUsername == "default" || _apiPassword == "default")
-            {
-                Logger.LogWarning(
-                    provider: SmsProviderType.Diafaan,
-                    eventType: "Configuration",
-                    details: "Using default credentials. Please configure Diafaan API credentials in appsettings.json."
-                );
-            }
-        }
-        
-        // Constructor for backward compatibility or testing
-        public DiafaanSmsProvider(PrincipleInboundSmsWriter? principleInboundSmsWriter = null)
-        {
-            _httpClient = new HttpClient();
-            _smsReceivedHandler = new SmsReceivedHandler(SmsProviderType.Diafaan, principleInboundSmsWriter);
-            _apiUrl = "DUMMY VALUE.  Check appsettings.json";
-            _apiUsername = "default";
-            _apiPassword = "default";
-            
-            Logger.LogWarning(
-                provider: SmsProviderType.Diafaan,
-                eventType: "Configuration",
-                details: "Using default constructor with placeholder credentials. This should only be used for testing."
-            );
+            _apiUrl = configuration["SmsSettings:Providers:diafaan:ApiUrl"]!;
+            _apiUsername = configuration["SmsSettings:Providers:diafaan:Username"]!;
+            _apiPassword = configuration["SmsSettings:Providers:diafaan:Password"]!;
         }
 
         public async Task<(IResult Result, SmsBridgeId smsBridgeId)> SendSms(SendSmsRequest request, SmsBridgeId smsBridgeId)
@@ -173,6 +148,14 @@ namespace SMS_Bridge.SmsProviders
                 {
                     return cachedStatus.Status;
                 }
+                else
+                {
+                    // Happy case handled below
+                }
+            }
+            else
+            {
+                // No cached status, check provider
             }
             
             // Get the provider message ID
@@ -186,6 +169,10 @@ namespace SMS_Bridge.SmsProviders
                     details: "No provider message ID found for this SMS bridge ID"
                 );
                 return SmsStatus.Unknown;
+            }
+            else
+            {
+                // Happy case handled below
             }
             
             try
@@ -203,13 +190,23 @@ namespace SMS_Bridge.SmsProviders
                     
                     if (statusResponse != null)
                     {
+                        var statusText = statusResponse.Status;
+                        if (statusText == null)
+                        {
+                            throw new InvalidOperationException("Diafaan API returned null status");
+                        }
+
                         // Map Diafaan status to our status enum
-                        var status = MapDiafaanStatus(statusResponse.Status);
+                        var status = MapDiafaanStatus(statusText);
                         
                         // Update the cached status
                         if (_messageStatuses.TryGetValue(smsBridgeId, out var existingStatus))
                         {
                             _messageStatuses[smsBridgeId] = (existingStatus.ProviderMessageID, status, existingStatus.SentAt, DateTime.Now);
+                        }
+                        else
+                        {
+                            // No existing status to update
                         }
                         
                         Logger.LogInfo(
@@ -222,6 +219,14 @@ namespace SMS_Bridge.SmsProviders
                         
                         return status;
                     }
+                    else
+                    {
+                        // Happy case handled below
+                    }
+                }
+                else
+                {
+                    // Happy case handled below
                 }
                 
                 Logger.LogWarning(
@@ -279,6 +284,10 @@ namespace SMS_Bridge.SmsProviders
                             {
                                 receivedAt = DateTime.Now;
                             }
+                            else
+                            {
+                                // Timestamp parsed successfully
+                            }
                             
                             // Create a received SMS request
                             var receivedSms = new ReceiveSmsRequest(
@@ -308,6 +317,14 @@ namespace SMS_Bridge.SmsProviders
                         
                         return result;
                     }
+                    else
+                    {
+                        // Happy case handled below
+                    }
+                }
+                else
+                {
+                    // Happy case handled below
                 }
                 
                 // If we get here, either the API call failed or there were no messages
@@ -331,6 +348,10 @@ namespace SMS_Bridge.SmsProviders
             if (_smsBridgeToProviderId.TryGetValue(smsBridgeId, out var providerMessageId))
             {
                 return providerMessageId;
+            }
+            else
+            {
+                // Happy case handled below
             }
             
             Logger.LogWarning(
@@ -374,7 +395,7 @@ namespace SMS_Bridge.SmsProviders
         
         private SmsStatus MapDiafaanStatus(string diafaanStatus)
         {
-            return diafaanStatus?.ToLower() switch
+            return diafaanStatus.ToLower() switch
             {
                 "delivered" => SmsStatus.Delivered,
                 "sent" => SmsStatus.Delivered,

@@ -1,4 +1,4 @@
-﻿﻿using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using SMS_Bridge.Models;
 using SMS_Bridge.SmsProviders;
 
@@ -40,6 +40,10 @@ namespace SMS_Bridge.Services
             {
                 throw new ArgumentNullException(nameof(request));
             }
+            else
+            {
+                // Happy case handled below
+            }
 
             var smsBridgeId = new SmsBridgeId(Guid.NewGuid());
             _smsQueue.Enqueue((request, smsBridgeId));
@@ -56,40 +60,52 @@ namespace SMS_Bridge.Services
 
         private async void ProcessQueue(object? state)
         {
-            if (_smsQueue.TryDequeue(out var item))
+            if (!_smsQueue.TryDequeue(out var item))
+                return;
+            else
             {
-                var (request, smsBridgeId) = item;
-                try
-                {
-                    var (result, returnedSmsBridgeId) = await _provider.SendSms(request, smsBridgeId);
-                    if (result is IStatusCodeHttpResult statusCodeResult && statusCodeResult.StatusCode != 200)
-                    {
-                        throw new InvalidOperationException($"SMS send failed with status {statusCodeResult.StatusCode}");
-                    }
+                // Happy case handled below
+            }
 
-                    // Retrieve the mapping to ensure we can track message status
-                    var providerMessageId = _provider.GetProviderMessageID(smsBridgeId);
-                    if (providerMessageId != null)
-                    {
-                        _smsbridgetoproviderid[smsBridgeId] = providerMessageId.Value;
-                    }
-
-                    Logger.LogInfo(
-                        provider: _providerType,
-                        eventType: "MessageSent",
-                        SMSBridgeID: smsBridgeId,
-                        providerMessageID: providerMessageId ?? default,
-                        details: $"Mapped to providerMessageID (SMSBridgeID): {(providerMessageId?.ToString() ?? "unknown")} ({smsBridgeId}), SMS sent to {request.PhoneNumber}");
-                }
-                catch (Exception ex)
+            var (request, smsBridgeId) = item;
+            try
+            {
+                var (result, returnedSmsBridgeId) = await _provider.SendSms(request, smsBridgeId);
+                if (result is IStatusCodeHttpResult statusCodeResult && statusCodeResult.StatusCode != 200)
                 {
-                    Logger.LogError(
-                        provider: _providerType,
-                        eventType: "SendFailed",
-                        SMSBridgeID: smsBridgeId,
-                        providerMessageID: default, // providerMessageID might not be available on failure
-                        details: $"Failed to send SMS to {request.PhoneNumber}: {ex.Message}");
+                    throw new InvalidOperationException($"SMS send failed with status {statusCodeResult.StatusCode}");
                 }
+                else
+                {
+                    // Happy case handled below
+                }
+
+                // Retrieve the mapping to ensure we can track message status
+                var providerMessageId = _provider.GetProviderMessageID(smsBridgeId);
+                if (providerMessageId != null)
+                {
+                    _smsbridgetoproviderid[smsBridgeId] = providerMessageId.Value;
+                }
+                else
+                {
+                    // No provider message ID to map
+                }
+
+                Logger.LogInfo(
+                    provider: _providerType,
+                    eventType: "MessageSent",
+                    SMSBridgeID: smsBridgeId,
+                    providerMessageID: providerMessageId ?? default,
+                    details: $"Mapped to providerMessageID (SMSBridgeID): {(providerMessageId?.ToString() ?? "unknown")} ({smsBridgeId}), SMS sent to {request.PhoneNumber}");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(
+                    provider: _providerType,
+                    eventType: "SendFailed",
+                    SMSBridgeID: smsBridgeId,
+                    providerMessageID: default, // providerMessageID might not be available on failure
+                    details: $"Failed to send SMS to {request.PhoneNumber}: {ex.Message}");
             }
         }
 
@@ -102,6 +118,10 @@ namespace SMS_Bridge.Services
             {
                 providerMessageIdGuid = providerMessageId.Value;
                 return true;
+            }
+            else
+            {
+                // Happy case handled below
             }
             
             return false;

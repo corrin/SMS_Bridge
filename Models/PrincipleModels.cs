@@ -4,9 +4,10 @@ namespace SMS_Bridge.Models
 {
     public class PrincipleOptions
     {
-        public bool Enabled { get; set; }
+        public bool Enabled { get; set; } = false;
         public string ApiBaseUrl { get; set; } = "https://api.principle.dental";
         public string[] PracticeIds { get; set; } = Array.Empty<string>();
+        public int CacheTtlDays { get; set; } = 7;
     }
 
     public record PrincipleWebhookPayload(

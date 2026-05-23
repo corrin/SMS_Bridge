@@ -14,11 +14,15 @@ namespace SMS_Bridge.Services
             {
                 throw new InvalidOperationException("BRIDGE_API_KEY must be configured in install-settings.json");
             }
+            else
+            {
+                // Happy case handled below
+            }
         }
 
         public string GetSetting(string key)
         {
-            return _config[key];
+            return _config[key]!;
         }
 
         public string GetRequiredSetting(string key)
@@ -27,6 +31,10 @@ namespace SMS_Bridge.Services
             if (string.IsNullOrEmpty(value))
             {
                 throw new InvalidOperationException($"Required configuration setting '{key}' not found");
+            }
+            else
+            {
+                // Happy case handled below
             }
             return value;
         }
@@ -49,6 +57,10 @@ namespace SMS_Bridge.Services
             if (string.IsNullOrEmpty(value))
             {
                 throw new InvalidOperationException($"Required provider setting '{key}' not found");
+            }
+            else
+            {
+                // Happy case handled below
             }
             return value;
         }

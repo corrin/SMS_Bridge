@@ -12,6 +12,10 @@
     <GenerateDocumentationFile>False</GenerateDocumentationFile>
   </PropertyGroup>
 
+  <Target Name="BuildRelease" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug'">
+    <MSBuild Projects="$(MSBuildProjectFullPath)" Targets="Build" Properties="Configuration=Release" />
+  </Target>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
   </ItemGroup>

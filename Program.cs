@@ -53,6 +53,8 @@ try
     configuration.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
     configuration.AddJsonFile(Path.Combine(AppData.BasePath, "install-settings.json"), optional: false, reloadOnChange: true);
 
+    ValidateConfigMerge();
+
     var smsProvider = configuration["SmsSettings:Provider"]?.ToLower() ??
         throw new InvalidOperationException("SMS provider must be configured in appsettings.json");
 
@@ -60,17 +62,15 @@ try
     {
         configuredProviderType = SmsProviderType.BuggyCodeNeedsFixing;
     }
+    else
+    {
+        // Provider type parsed successfully
+    }
 
     Configuration fileConfiguration = new Configuration(configuration);
     var apiKey = fileConfiguration.GetApiKey();
 
-    var productionMachines = configuration.GetSection("SmsSettings:ProductionMachines")
-        .Get<string[]>() ?? Array.Empty<string>();
-
-    // The JSON lists all production machines
-    // If we are different to all of them, then we are in debug mode
-    var isDebugMode = !productionMachines
-        .Any(name => string.Equals(name, Environment.MachineName, StringComparison.OrdinalIgnoreCase));
+    var isDebugMode = configuration.GetValue<bool>("SmsSettings:EnableDebugMode");
 
 
     if (isDebugMode && string.IsNullOrEmpty(configuration["SmsSettings:TestingPhoneNumber"]))
@@ -81,6 +81,10 @@ try
             details: "Debug mode is enabled but no testing phone number is configured",
             SMSBridgeID: default
         );
+    }
+    else
+    {
+        // Debug mode not active or testing phone number is configured
     }
 
     builder.Services.ConfigureHttpJsonOptions(options =>
@@ -97,23 +101,24 @@ try
     });
     builder.Services.AddSingleton<PrincipleWebhookService>();
     builder.Services.AddSingleton<PrincipleInboundSmsWriter>();
+    builder.Services.AddSingleton<SmsReceivedHandler>(services =>
+        new SmsReceivedHandler(configuredProviderType, services.GetService<PrincipleInboundSmsWriter>()));
 
-    // Initialize the appropriate SMS provider based on configuration
-    builder.Services.AddSingleton<ISmsProvider>(services =>
-    {
-        var httpClient = new HttpClient();
-        var apiKey = fileConfiguration.GetRequiredProviderSetting("etxt", "API_KEY");
-        var apiSecret = fileConfiguration.GetRequiredProviderSetting("etxt", "API_SECRET");
-        var principleInboundSmsWriter = services.GetService<PrincipleInboundSmsWriter>();
-
-        // We already parsed the provider type earlier, use it here
-        ISmsProvider provider = configuredProviderType switch
+        // Initialize the appropriate SMS provider based on configuration
+        builder.Services.AddSingleton<ISmsProvider>(services =>
         {
-            SmsProviderType.JustRemotePhone => new JustRemotePhoneSmsProvider(principleInboundSmsWriter),
-            SmsProviderType.Diafaan => new DiafaanSmsProvider(principleInboundSmsWriter),
-            SmsProviderType.ETxt => CreateETxtProvider(configuration, fileConfiguration, httpClient, apiKey, apiSecret, principleInboundSmsWriter),
-            _ => throw new InvalidOperationException($"Unsupported SMS provider: {smsProvider}") // This case should not be reached if parsing is successful
-        };
+            var httpClient = new HttpClient();
+            var principleInboundSmsWriter = services.GetService<PrincipleInboundSmsWriter>();
+            var smsReceivedHandler = services.GetRequiredService<SmsReceivedHandler>();
+
+            // We already parsed the provider type earlier, use it here
+            ISmsProvider provider = configuredProviderType switch
+            {
+                SmsProviderType.JustRemotePhone => new JustRemotePhoneSmsProvider(smsReceivedHandler),
+                SmsProviderType.Diafaan => new DiafaanSmsProvider(httpClient, configuration, smsReceivedHandler),
+                SmsProviderType.ETxt => CreateETxtProvider(configuration, fileConfiguration, httpClient, smsReceivedHandler),
+                _ => throw new InvalidOperationException($"Unsupported SMS provider: {smsProvider}") // This case should not be reached if parsing is successful
+            };
 
 
         Logger.LogInfo(
@@ -149,6 +154,14 @@ try
                     );
                     return Results.Unauthorized();
                 }
+                else
+                {
+                    // Happy case handled below
+                }
+            }
+            else
+            {
+                // Localhost, skip API key check
             }
 
             return await next(context);
@@ -164,21 +177,34 @@ try
             if (isDebugMode)
             {
                 var allowedNumbers = configuration.GetSection("SmsSettings:AllowedTestNumbers")
-                    .Get<string[]>() ?? Array.Empty<string>();
+                    .Get<string[]>()!;
 
-                if (!allowedNumbers.Select(n => n.TrimStart('+')).Contains(destinationNumber.TrimStart('+')))
+                if (allowedNumbers.Select(n => n.TrimStart('+')).Contains(destinationNumber.TrimStart('+')))
+                    goto skipDebugRedirect;
+                else
                 {
-                    var testNumber = configuration["SmsSettings:TestingPhoneNumber"];
-                    if (!string.IsNullOrEmpty(testNumber))
-                    {
-                        Logger.LogInfo(
-                            provider: configuredProviderType,
-                            eventType: "DebugRedirect",
-                            details: $"Redirecting SMS from {destinationNumber} to {testNumber}"
-                        );
-                        destinationNumber = testNumber;
-                    }
+                    // Not an allowed test number, redirect
                 }
+
+                var testNumber = configuration["SmsSettings:TestingPhoneNumber"];
+                if (!string.IsNullOrEmpty(testNumber))
+                {
+                    Logger.LogInfo(
+                        provider: configuredProviderType,
+                        eventType: "DebugRedirect",
+                        details: $"Redirecting SMS from {destinationNumber} to {testNumber}"
+                    );
+                    destinationNumber = testNumber;
+                }
+                else
+                {
+                    // No test number configured
+                }
+                skipDebugRedirect:;
+            }
+            else
+            {
+                // Not in debug mode, no redirect
             }
 
             var modifiedRequest = request with { PhoneNumber = destinationNumber };
@@ -206,6 +232,10 @@ try
     {
         if (smsProvider is not JustRemotePhoneSmsProvider provider)
             return Results.BadRequest("Unsupported SMS provider");
+        else
+        {
+            // Happy case handled below
+        }
 
         var status = await provider.GetMessageStatus(new SmsBridgeId(smsBridgeId));
 
@@ -224,6 +254,10 @@ try
         {
             if (smsProvider is not JustRemotePhoneSmsProvider provider)
                 return Results.BadRequest("Unsupported SMS provider");
+            else
+            {
+                // Happy case handled below
+            }
 
             var messages = await provider.GetReceivedMessages();
             var flat = messages.Select(m => new {
@@ -266,6 +300,10 @@ try
             {
                 return Results.BadRequest("Unsupported SMS provider");
             }
+            else
+            {
+                // Happy case handled below
+            }
 
             var statuses = await provider.GetRecentMessageStatuses();
             return Results.Json(
@@ -296,11 +334,19 @@ try
         {
             return Results.BadRequest("Invalid message ID format");
         }
+        else
+        {
+            // Happy case handled below
+        }
         var smsBridgeId = new SmsBridgeId(smsBridgeIdGuid);
 
         if (smsProvider is not JustRemotePhoneSmsProvider provider)
         {
             return Results.BadRequest("Unsupported SMS provider");
+        }
+        else
+        {
+            // Happy case handled below
         }
 
         // BUGGY.  Work out the call
@@ -309,7 +355,10 @@ try
         {
             return Results.Ok(result);
         }
-        return Results.NotFound(result);
+        else
+        {
+            return Results.NotFound(result);
+        }
     });
 
     smsGatewayApi.MapGet("/gateway-status", () =>
@@ -321,17 +370,16 @@ try
     {
         var resp = new DebugStatusResponse(
             IsDebugMode: isDebugMode,
-            TestingPhoneNumber: configuration["SmsSettings:TestingPhoneNumber"] ?? "",
+            TestingPhoneNumber: configuration["SmsSettings:TestingPhoneNumber"]!,
             AllowedTestNumbers: configuration.GetSection("SmsSettings:AllowedTestNumbers")
-                .Get<string[]>() ?? Array.Empty<string>()
+                .Get<string[]>()!
         );
         return Results.Ok(resp);
     });
 
-    if (true)  // We used to restrict to Debug Mode but it complicated PVT
+    if (isDebugMode)
     {
         var testingApi = app.MapGroup("/smsgateway/test");
-
         Testing.RegisterTestingEndpoints(testingApi, configuration);
 
         Logger.LogInfo(
@@ -341,16 +389,13 @@ try
         );
     }
 
-    if (true) // both dev and prod have webhook support
-    {
-        var webhooksApi = app.MapGroup("/smsgateway/webhooks");
-        Webhooks.RegisterWebhookEndpoints(webhooksApi, builder.Configuration);
+    var webhooksApi = app.MapGroup("/smsgateway/webhooks");
+    Webhooks.RegisterWebhookEndpoints(webhooksApi, builder.Configuration);
 
-        webhooksApi.MapPost("/principle", async (HttpRequest request, PrincipleWebhookService principleWebhook) =>
-        {
-            return await principleWebhook.HandleAsync(request);
-        });
-    }
+    webhooksApi.MapPost("/principle", async (HttpRequest request, PrincipleWebhookService principleWebhook) =>
+    {
+        return await principleWebhook.HandleAsync(request);
+    });
 
     Logger.LogInfo(
         provider: configuredProviderType,
@@ -373,8 +418,58 @@ catch (Exception ex)
 }
 
 
-// Factory method to create ETxtSmsProvider with required dependencies
-static ETxtSmsProvider CreateETxtProvider(IConfiguration configuration, Configuration fileConfiguration, HttpClient httpClient, string apiKey, string apiSecret, PrincipleInboundSmsWriter? principleInboundSmsWriter)
+// Validate that every key in install-settings.json exists in appsettings.json
+static void ValidateConfigMerge()
 {
-    return new ETxtSmsProvider(httpClient, apiKey, apiSecret, configuration, fileConfiguration, principleInboundSmsWriter);
+    var appsettingsPath = "appsettings.json";
+    var installPath = Path.Combine(AppData.BasePath, "install-settings.json");
+
+    var jsonOptions = new JsonDocumentOptions
+    {
+        CommentHandling = JsonCommentHandling.Skip,
+        AllowTrailingCommas = true
+    };
+
+    using var appsettingsDoc = JsonDocument.Parse(File.ReadAllText(appsettingsPath), jsonOptions);
+    using var installDoc = JsonDocument.Parse(File.ReadAllText(installPath), jsonOptions);
+
+    var missingKeys = new List<string>();
+    FindMissingKeys(appsettingsDoc.RootElement, installDoc.RootElement, "", missingKeys);
+
+    if (missingKeys.Count > 0)
+    {
+        throw new InvalidOperationException(
+            "install-settings.json contains keys not declared in appsettings.json: " +
+            string.Join(", ", missingKeys));
+    }
+    else
+    {
+        // Happy case handled below
+    }
+}
+
+static void FindMissingKeys(JsonElement appsettings, JsonElement install, string path, List<string> missingKeys)
+{
+    foreach (var property in install.EnumerateObject())
+    {
+        var currentPath = string.IsNullOrEmpty(path) ? property.Name : $"{path}:{property.Name}";
+
+        if (!appsettings.TryGetProperty(property.Name, out var appProperty))
+        {
+            missingKeys.Add(currentPath);
+        }
+        else if (property.Value.ValueKind == JsonValueKind.Object &&
+                 appProperty.ValueKind == JsonValueKind.Object)
+        {
+            FindMissingKeys(appProperty, property.Value, currentPath, missingKeys);
+        }
+    }
+}
+
+// Factory method to create ETxtSmsProvider with required dependencies
+static ETxtSmsProvider CreateETxtProvider(IConfiguration configuration, Configuration fileConfiguration, HttpClient httpClient, SmsReceivedHandler smsReceivedHandler)
+{
+    var apiKey = fileConfiguration.GetRequiredProviderSetting("etxt", "API_KEY");
+    var apiSecret = fileConfiguration.GetRequiredProviderSetting("etxt", "API_SECRET");
+    return new ETxtSmsProvider(httpClient, apiKey, apiSecret, configuration, fileConfiguration, smsReceivedHandler);
 }

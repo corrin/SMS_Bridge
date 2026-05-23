@@ -4,7 +4,7 @@
     {
       "label": "ngrok",
       "type": "shell",
-      "command": "ngrok start --config \"$HOME/.config/ngrok/ngrok.yml\" --config ngrok.yml sms-bridge",
+      "command": "ngrok start --config ngrok.yml sms-bridge",
       "isBackground": true,
       "problemMatcher": []
     }

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using System.Text.Json;
 using SMS_Bridge.Models;
 
@@ -11,6 +12,13 @@ namespace SMS_Bridge.Services
             DirectoryPath,
             $"{Environment.MachineName}_principle_sms_map.json"
         );
+        private readonly int _cacheTtlDays;
+
+        public PrincipleOutboundSmsStore(IConfiguration configuration)
+        {
+            var options = configuration.GetSection("Principle").Get<PrincipleOptions>()!;
+            _cacheTtlDays = options.CacheTtlDays;
+        }
 
         public async Task<bool> ExistsAsync(string principleMessageId)
         {
@@ -28,6 +36,12 @@ namespace SMS_Bridge.Services
                 {
                     return;
                 }
+                else
+                {
+                    // Happy case handled below
+                }
+                var cutoff = DateTime.Now.AddDays(-_cacheTtlDays);
+                records.RemoveAll(r => r.ReceivedAt < cutoff);
                 records.Add(record);
                 Directory.CreateDirectory(DirectoryPath);
                 var json = JsonSerializer.Serialize(
@@ -45,8 +59,14 @@ namespace SMS_Bridge.Services
         public async Task<PrincipleOutboundSmsMapRecord?> FindByPhoneNumberAsync(string phoneNumber)
         {
             var records = await LoadAsync();
-            return records
-                .LastOrDefault(record => NormalisePhoneNumber(record.PatientPhoneNumber) == NormalisePhoneNumber(phoneNumber));
+            var normalised = NormalisePhoneNumber(phoneNumber);
+            var cutoff = DateTime.Now.AddDays(-_cacheTtlDays);
+            var matching = records
+                .Where(record => NormalisePhoneNumber(record.PatientPhoneNumber) == normalised
+                              && record.ReceivedAt > cutoff)
+                .ToList();
+            return matching.LastOrDefault(r => r.PatientId != null)
+                ?? matching.LastOrDefault();
         }
 
         private static async Task<List<PrincipleOutboundSmsMapRecord>> LoadAsync()
@@ -67,6 +87,10 @@ namespace SMS_Bridge.Services
             if (!File.Exists(FilePath))
             {
                 return new List<PrincipleOutboundSmsMapRecord>();
+            }
+            else
+            {
+                // Happy case handled below
             }
 
             var json = await File.ReadAllTextAsync(FilePath);

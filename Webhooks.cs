@@ -1,4 +1,4 @@
-﻿﻿﻿﻿using Microsoft.AspNetCore.Builder;
+﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
@@ -39,6 +39,10 @@ namespace SMS_Bridge
                 {
                     return Results.BadRequest($"Unknown provider '{provider}'");
                 }
+                else
+                {
+                    // Happy case handled below
+                }
 
                 // Validate the provider-specific header
                 var headerName = $"X-{provider}-Callback-Key";
@@ -46,6 +50,10 @@ namespace SMS_Bridge
                     || providedKey != expectedKey)
                 {
                     return Results.Unauthorized();
+                }
+                else
+                {
+                    // Happy case handled below
                 }
 
                 // Deserialize payload into shared model

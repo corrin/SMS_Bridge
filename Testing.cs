@@ -24,7 +24,7 @@
                 {
                     var smsQueueService = services.GetRequiredService<SmsQueueService>();
                     var configuration = services.GetRequiredService<IConfiguration>();
-                    var defaultPhoneNumber = configuration["SmsSettings:TestingPhoneNumber"] ?? "+6421467784";
+                    var defaultPhoneNumber = configuration["SmsSettings:TestingPhoneNumber"]!;
                     var testRequest = new SendSmsRequest(defaultPhoneNumber, "This is a test message during development");
 
                     var smsBridgeId = smsQueueService.QueueSms(testRequest);
@@ -51,7 +51,7 @@
                 {
                     var provider = services.GetRequiredService<ISmsProvider>();
                     var configuration = services.GetRequiredService<IConfiguration>();
-                    var defaultPhoneNumber = configuration["SmsSettings:TestingPhoneNumber"] ?? "+64211626986";
+                    var defaultPhoneNumber = configuration["SmsSettings:TestingPhoneNumber"]!;
                     var responses = new List<(IResult Result, SmsBridgeId smsBridgeId)>();
                     var smsBridgeIDs = new List<SmsBridgeId>(); // Collect SMSBridgeIDs
                     var providerMessageIDs = new List<ProviderMessageId>(); // Collect ProviderMessageIDs
@@ -69,6 +69,10 @@
                         if (providerMessageId != null)
                         {
                             providerMessageIDs.Add(providerMessageId.Value);
+                        }
+                        else
+                        {
+                            // No provider message ID to add
                         }
                     }
 
@@ -92,6 +96,40 @@
                     );
                 }
             });
+            testingGatewayAPI.MapGet("/test-patient-lookup", async (IServiceProvider services, string phoneNumber) =>
+            {
+                try
+                {
+                    var store = services.GetRequiredService<PrincipleOutboundSmsStore>();
+                    var writer = services.GetRequiredService<PrincipleInboundSmsWriter>();
+
+                    var cacheRecord = await store.FindByPhoneNumberAsync(phoneNumber);
+                    var cacheResult = cacheRecord == null
+                        ? "not found"
+                        : $"found, practiceId={cacheRecord.PracticeId}, patientId={cacheRecord.PatientId ?? "(null)"}";
+
+                    var target = await writer.ResolveTargetAsync(phoneNumber);
+                    var resolveResult = target == null
+                        ? "no match"
+                        : $"matched patientId={target.PatientId}, practiceId={target.PracticeId}";
+
+                    return Results.Ok(new
+                    {
+                        phoneNumber,
+                        cache = cacheResult,
+                        resolution = resolveResult
+                    });
+                }
+                catch (Exception ex)
+                {
+                    return Results.Problem(
+                        title: "Test Patient Lookup Failed",
+                        detail: ex.Message,
+                        statusCode: 503
+                    );
+                }
+            });
+
             testingGatewayAPI.MapGet("/check-send-sms", async (IServiceProvider services) =>
             {
                 try
@@ -99,7 +137,7 @@
                     var smsQueueService = services.GetRequiredService<SmsQueueService>();
                     var smsProvider = services.GetRequiredService<ISmsProvider>();
                     var configuration = services.GetRequiredService<IConfiguration>();
-                    var defaultPhoneNumber = configuration["SmsSettings:TestingPhoneNumber"] ?? "+6421467784";
+                    var defaultPhoneNumber = configuration["SmsSettings:TestingPhoneNumber"]!;
                     var testRequest = new SendSmsRequest(defaultPhoneNumber, "This is a test message during development");
 
                     var smsBridgeId = smsQueueService.QueueSms(testRequest);

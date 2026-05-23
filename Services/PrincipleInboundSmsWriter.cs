@@ -20,6 +20,10 @@ namespace SMS_Bridge.Services
             {
                 return false;
             }
+            else
+            {
+                // Happy case handled below
+            }
 
             try
             {
@@ -34,6 +38,10 @@ namespace SMS_Bridge.Services
                         details: $"Could not match inbound SMS sender {sms.FromNumber} to a Principle patient"
                     );
                     return false;
+                }
+                else
+                {
+                    // Happy case handled below
                 }
 
                 await _principleApi.CreateInboundSmsMessageAsync(
@@ -58,36 +66,56 @@ namespace SMS_Bridge.Services
                     eventType: "PrincipleInboundSmsFailed",
                     SMSBridgeID: sms.MessageID,
                     providerMessageID: sms.ProviderMessageID,
-                    details: $"Failed to create Principle inbound SMS: {ex.Message}"
+                    details: $"Principle API error for inbound SMS from {sms.FromNumber}: {ex.Message}"
                 );
                 return false;
             }
         }
 
-        private async Task<PrincipleReplyTarget?> ResolveTargetAsync(string fromNumber)
+        public async Task<PrincipleReplyTarget?> ResolveTargetAsync(string fromNumber)
         {
             var mapped = await _store.FindByPhoneNumberAsync(fromNumber);
+            Logger.LogInfo(
+                provider: SmsProviderType.JustRemotePhone,
+                eventType: "PrincipleInboundResolve",
+                details: $"Store lookup for {fromNumber}: found={mapped != null}, practiceId={mapped?.PracticeId}, patientId={mapped?.PatientId}"
+            );
+
             if (mapped is { PatientId: not null })
             {
                 return new PrincipleReplyTarget(mapped.PatientId, mapped.PracticeId);
+            }
+            else
+            {
+                // Happy case handled below
             }
 
             var practiceIds = mapped != null
                 ? new[] { mapped.PracticeId }
                 : _principleApi.PracticeIds;
 
+            Logger.LogInfo(
+                provider: SmsProviderType.JustRemotePhone,
+                eventType: "PrincipleInboundResolve",
+                details: $"Searching Principle API for {fromNumber} in practices: [{string.Join(", ", practiceIds)}]"
+            );
+
             foreach (var practiceId in practiceIds)
             {
                 var matches = await _principleApi.SearchPatientsByPhoneAsync(practiceId, fromNumber);
-                if (matches.Count == 1)
-                {
-                    return new PrincipleReplyTarget(matches[0].Id, practiceId);
-                }
+                Logger.LogInfo(
+                    provider: SmsProviderType.JustRemotePhone,
+                    eventType: "PrincipleInboundResolve",
+                    details: $"Search practice={practiceId} phone={fromNumber}: {matches.Count} matches"
+                );
+                if (matches.Count == 0)
+                    continue;
+                return new PrincipleReplyTarget(matches[0].Id, practiceId);
             }
 
             return null;
         }
 
-        private record PrincipleReplyTarget(string PatientId, string PracticeId);
+        public record PrincipleReplyTarget(string PatientId, string PracticeId);
     }
 }

@@ -58,9 +58,9 @@ namespace SMS_Bridge.SmsProviders
         }
 
 
-        public JustRemotePhoneSmsProvider(PrincipleInboundSmsWriter? principleInboundSmsWriter = null)
+        public JustRemotePhoneSmsProvider(SmsReceivedHandler smsReceivedHandler)
         {
-            _smsReceivedHandler = new SmsReceivedHandler(SmsProviderType.JustRemotePhone, principleInboundSmsWriter);
+            _smsReceivedHandler = smsReceivedHandler;
 
             _app.ApplicationStateChanged += OnApplicationStateChanged;
             _app.Phone.SMSSendResult += OnSMSSendResult;
@@ -90,6 +90,10 @@ namespace SMS_Bridge.SmsProviders
         private async Task<bool> EnsureConnectedAsync()
         {
             if (_isConnected) return true;
+            else
+            {
+                // Happy case handled below
+            }
 
             _app.BeginConnect(true);
 
@@ -97,6 +101,10 @@ namespace SMS_Bridge.SmsProviders
             for (int i = 0; i < 10; i++) // 10 attempts, 2 seconds each
             {
                 if (_isConnected) return true;
+                else
+                {
+                    // Happy case handled below
+                }
                 await Task.Delay(2000);
             }
 
@@ -117,6 +125,10 @@ namespace SMS_Bridge.SmsProviders
                     timerToDispose.Dispose();
                     OnMessageTimeout?.Invoke(smsBridgeId, numbers);
                 }
+                else
+                {
+                    // Timer already removed
+                }
             }, null, MESSAGE_TIMEOUT_MS, Timeout.Infinite);
 
             _messageTimers[smsBridgeId] = timer;
@@ -126,19 +138,23 @@ namespace SMS_Bridge.SmsProviders
         private void HandleMessageTimeout(SmsBridgeId smsBridgeId, string[] numbers)
         {
             // messageId here is actually SMSBridgeID based on SetupMessageTimeout
-            if (_messageStatuses.TryGetValue(smsBridgeId, out var existing) && existing.StatusAt == DateTime.MinValue)
+            if (!_messageStatuses.TryGetValue(smsBridgeId, out var existing) || existing.StatusAt != DateTime.MinValue)
+                return;
+            else
             {
-                var timeoutInterval = DateTime.Now - existing.SentAt;
-                Logger.LogError(
-                    provider: SmsProviderType.JustRemotePhone,
-                    eventType: "Timeout",
-                    SMSBridgeID: smsBridgeId, 
-                    providerMessageID: existing.ProviderMessageID, 
-                    details: $"Message timed out after {timeoutInterval.TotalMinutes:F1} minutes. Numbers: {string.Join(",", numbers)}"
-                );
-                // Preserve original metadata while updating status
-                _messageStatuses[smsBridgeId] = (existing.ProviderMessageID, SmsStatus.TimedOut, existing.SentAt, DateTime.Now);
+                // Happy case handled below
             }
+
+            var timeoutInterval = DateTime.Now - existing.SentAt;
+            Logger.LogError(
+                provider: SmsProviderType.JustRemotePhone,
+                eventType: "Timeout",
+                SMSBridgeID: smsBridgeId,
+                providerMessageID: existing.ProviderMessageID,
+                details: $"Message timed out after {timeoutInterval.TotalMinutes:F1} minutes. Numbers: {string.Join(",", numbers)}"
+            );
+            // Preserve original metadata while updating status
+            _messageStatuses[smsBridgeId] = (existing.ProviderMessageID, SmsStatus.TimedOut, existing.SentAt, DateTime.Now);
         }
 
 
@@ -150,9 +166,19 @@ namespace SMS_Bridge.SmsProviders
             // Look up which SmsBridgeId corresponds to this provider message
             var entry = _messageStatuses.FirstOrDefault(e => e.Value.ProviderMessageID.Value == providerMessageIdGuid);
 
-            if (entry.Key != default) // Check if an entry was found (default for SmsBridgeId is Guid.Empty)
+            if (entry.Key == default) // No matching entry found (default for SmsBridgeId is Guid.Empty)
             {
-                var smsBridgeId = entry.Key;
+                Logger.LogWarning(
+                    provider: SmsProviderType.JustRemotePhone,
+                    eventType: "UnexpectedDeliveryStatus",
+                    SMSBridgeID: default, // SMSBridgeID is unknown in this case, pass default
+                    providerMessageID: providerMessageId, // Pass ProviderMessageId
+                    details: $"Received delivery status but no send time recorded. Numbers: {string.Join(",", numbers)}"
+                );
+                return;
+            }
+
+            var smsBridgeId = entry.Key;
                 var existing = entry.Value;
                 var now = DateTime.Now;
                 var status = results.FirstOrDefault() switch
@@ -182,18 +208,11 @@ namespace SMS_Bridge.SmsProviders
                 {
                     timer.Dispose();
                 }
-            }
-            else
-            {
-                Logger.LogWarning(
-                    provider: SmsProviderType.JustRemotePhone,
-                    eventType: "UnexpectedDeliveryStatus",
-                    SMSBridgeID: default, // SMSBridgeID is unknown in this case, pass default
-                    providerMessageID: providerMessageId, // Pass ProviderMessageId
-                    details: $"Received delivery status but no send time recorded. Numbers: {string.Join(",", numbers)}"
-                );
+                else
+                {
+                    // Timer already removed
+                }
                 // We cannot add to _messageStatuses here as we don't have the SMSBridgeID
-            }
         }
         private void OnSMSReceived(string number, string contactLabel, string text)
         {
@@ -224,6 +243,10 @@ namespace SMS_Bridge.SmsProviders
                 );
                 return (Result: result, smsBridgeId: default); // Use default for SmsBridgeId
             }
+            else
+            {
+                // Happy case handled below
+            }
 
             // Connection check.
             // I've added the log because I think this is redundant and I'm going to monitor the log to see if it ever happens
@@ -246,6 +269,14 @@ namespace SMS_Bridge.SmsProviders
                     );
                     return (Result: result, smsBridgeId: smsBridgeId); // Match parameter name in interface
                 }
+                else
+                {
+                    // Happy case handled below
+                }
+            }
+            else
+            {
+                // Already connected
             }
 
 
@@ -341,6 +372,10 @@ namespace SMS_Bridge.SmsProviders
             {
                 return messageData.ProviderMessageID;
             }
+            else
+            {
+                // Happy case handled below
+            }
             
             Logger.LogWarning(
                 provider: SmsProviderType.JustRemotePhone,
@@ -371,6 +406,10 @@ namespace SMS_Bridge.SmsProviders
                     SmsStatus.Pending => SmsStatus.Pending,
                     _ => SmsStatus.Failed
                 });
+            }
+            else
+            {
+                // Happy case handled below
             }
 
             Logger.LogWarning(

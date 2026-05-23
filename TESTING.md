@@ -12,37 +12,33 @@
 
 ### `appsettings.json`
 
-Set `Principle.Enabled` to `true` and add a real PracticeId:
+Add a real PracticeId:
 ```json
 {
   "Principle": {
-    "Enabled": true,
     "PracticeIds": ["<your-practice-id>"]
-  },
-  "Hosting": {
-    "AppBaseUrl": "https://<your-subdomain>.ngrok-free.app/"
   }
 }
 ```
 
 ### `install-settings.json`
 
-Create `install-settings.json` in the project root. Required — the app won't start without it. Minimum content for dev testing with Principle:
+Create at `C:\ProgramData\SMS_Bridge\install-settings.json`. Required — the app won't start without it. Minimum content for dev testing with Principle:
 
 ```json
 {
   "BRIDGE_API_KEY": "<any-key-for-inbound-req-auth>",
   "Principle": {
     "API_KEY": "<principle-api-key>",
-    "WEBHOOK_SECRET": "<shared-secret-for-webhook-signatures>",
-    "Enabled": true,
-    "PracticeIds": ["<your-practice-id>"]
+    "WEBHOOK_SECRET": "<shared-secret-for-webhook-signatures>"
   },
   "Hosting": {
     "AppBaseUrl": "https://<your-subdomain>.ngrok-free.app/"
   }
 }
 ```
+
+Principle integration is enabled by the presence of `Principle.API_KEY`. No separate flag needed.
 
 ## 2. Start Ngrok
 

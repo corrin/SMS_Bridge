@@ -64,6 +64,10 @@ namespace SMS_Bridge.Services
             {
                 return;
             }
+            else
+            {
+                // Happy case handled below
+            }
 
             await _principleInboundSmsWriter.TryWriteInboundReplyAsync(_SMSprovider, receivedSms);
         }
@@ -119,21 +123,25 @@ namespace SMS_Bridge.Services
                     var json = File.ReadAllText(ReceivedMessagesFilePath);
                     var messages = JsonSerializer.Deserialize<List<ReceiveSmsRequest>>(json);
 
-                    if (messages != null)
+                if (messages != null)
+                {
+                    foreach (var message in messages)
                     {
-                        foreach (var message in messages)
-                        {
-                            _receivedMessages[message.MessageID] = (message, message.ReceivedAt);
-                        }
-
-                        Logger.LogInfo(
-                            provider: _SMSprovider,
-                            eventType: "LoadReceivedMessages",
-                            SMSBridgeID: default,
-                            providerMessageID: default,
-                            details: $"Loaded {messages.Count} messages from {ReceivedMessagesFilePath}."
-                        );
+                        _receivedMessages[message.MessageID] = (message, message.ReceivedAt);
                     }
+
+                    Logger.LogInfo(
+                        provider: _SMSprovider,
+                        eventType: "LoadReceivedMessages",
+                        SMSBridgeID: default,
+                        providerMessageID: default,
+                        details: $"Loaded {messages.Count} messages from {ReceivedMessagesFilePath}."
+                    );
+                }
+                else
+                {
+                    // No messages to load
+                }
                 }
                 else
                 {
@@ -176,6 +184,10 @@ namespace SMS_Bridge.Services
                         details: "No messages found for a whole hour."
                     );
                     _lastZeroMessagesLogTime = DateTime.Now;
+                }
+                else
+                {
+                    // Log throttled
                 }
             }
             else
@@ -220,11 +232,15 @@ namespace SMS_Bridge.Services
                 details: isRemoved ? "Message successfully removed from the queue and saved to disk." : "Attempt to delete message failed. Message not found."
            );
 
-           if (isRemoved)
-           {
-               // Persist changes to ensure deleted messages stay deleted after restart
-               SaveReceivedMessagesToDisk();
-           }
+            if (isRemoved)
+            {
+                // Persist changes to ensure deleted messages stay deleted after restart
+                SaveReceivedMessagesToDisk();
+            }
+            else
+            {
+                // Nothing to persist
+            }
 
            return Task.FromResult(response);
        }

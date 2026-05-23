@@ -32,23 +32,78 @@ namespace SMS_Bridge.Services
         {
             if (!_principleApi.Enabled)
             {
+                Logger.LogWarning(
+                    provider: SmsProviderType.JustRemotePhone,
+                    eventType: "PrincipleWebhook",
+                    details: "Principle webhook received but Principle integration is disabled"
+                );
                 return Results.NotFound();
             }
+            else
+            {
+                // Happy case handled below
+            }
+
+            Logger.LogInfo(
+                provider: SmsProviderType.JustRemotePhone,
+                eventType: "PrincipleWebhook",
+                details: $"Principle webhook received from {request.HttpContext.Connection.RemoteIpAddress}"
+            );
 
             var body = await ReadBodyAsync(request);
-            var secret = _fileConfiguration.GetSetting("Principle:WEBHOOK_SECRET") ?? "";
-            if (!string.IsNullOrWhiteSpace(secret))
-            {
-                if (!request.Headers.TryGetValue(SignatureHeader, out var signature) ||
-                    !request.Headers.TryGetValue(TimestampHeader, out var timestamp))
-                {
-                    return Results.Unauthorized();
-                }
 
-                if (!VerifySignature(secret, timestamp.ToString(), body, signature.ToString()))
-                {
-                    return Results.BadRequest("Invalid Principle webhook signature");
-                }
+            Logger.LogInfo(
+                provider: SmsProviderType.JustRemotePhone,
+                eventType: "PrincipleWebhookPayload",
+                details: $"Raw webhook body: {body}"
+            );
+
+            var secret = _fileConfiguration.GetSetting("Principle:WEBHOOK_SECRET");
+            if (string.IsNullOrWhiteSpace(secret))
+            {
+                Logger.LogError(
+                    provider: SmsProviderType.JustRemotePhone,
+                    eventType: "Configuration",
+                    details: "Principle webhook secret is not configured but Principle is enabled"
+                );
+                return Results.Problem(
+                    title: "SMS Gateway Configuration Error",
+                    detail: "Principle webhook secret is not configured",
+                    statusCode: 500
+                );
+            }
+            else
+            {
+                // Happy case handled below
+            }
+
+            if (!request.Headers.TryGetValue(SignatureHeader, out var signature) ||
+                !request.Headers.TryGetValue(TimestampHeader, out var timestamp))
+            {
+                Logger.LogWarning(
+                    provider: SmsProviderType.JustRemotePhone,
+                    eventType: "PrincipleWebhook",
+                    details: $"Principle webhook rejected: missing X-Principle-Signature or X-Principle-Timestamp header from {request.HttpContext.Connection.RemoteIpAddress}"
+                );
+                return Results.Unauthorized();
+            }
+            else
+            {
+                // Happy case handled below
+            }
+
+            if (!VerifySignature(secret, timestamp.ToString(), body, signature.ToString()))
+            {
+                Logger.LogWarning(
+                    provider: SmsProviderType.JustRemotePhone,
+                    eventType: "PrincipleWebhook",
+                    details: $"Principle webhook rejected: invalid signature from {request.HttpContext.Connection.RemoteIpAddress}"
+                );
+                return Results.BadRequest("Invalid Principle webhook signature");
+            }
+            else
+            {
+                // Happy case handled below
             }
 
             PrincipleWebhookPayload? payload;
@@ -58,12 +113,26 @@ namespace SMS_Bridge.Services
             }
             catch (JsonException)
             {
+                Logger.LogWarning(
+                    provider: SmsProviderType.JustRemotePhone,
+                    eventType: "PrincipleWebhook",
+                    details: $"Principle webhook rejected: invalid JSON body from {request.HttpContext.Connection.RemoteIpAddress}"
+                );
                 return Results.BadRequest("Invalid Principle webhook JSON");
             }
 
-            if (payload?.Data == null || !IsSendableOutboundMessage(payload))
+            if (payload?.Data == null)
             {
-                return Results.Ok(new { status = "ignored" });
+                Logger.LogWarning(
+                    provider: SmsProviderType.JustRemotePhone,
+                    eventType: "PrincipleWebhook",
+                    details: $"Principle webhook rejected: null payload data from {request.HttpContext.Connection.RemoteIpAddress}"
+                );
+                return Results.BadRequest("Principle webhook payload is empty");
+            }
+            else
+            {
+                // Happy case handled below
             }
 
             var data = payload.Data;
@@ -72,46 +141,69 @@ namespace SMS_Bridge.Services
                 string.IsNullOrWhiteSpace(data.Body) ||
                 string.IsNullOrWhiteSpace(data.PracticeId))
             {
+                Logger.LogWarning(
+                    provider: SmsProviderType.JustRemotePhone,
+                    eventType: "PrincipleWebhook",
+                    details: $"Principle webhook rejected: missing required fields (id={data.Id}, phone={data.PatientPhoneNumber}, body={(data.Body != null ? "present" : "missing")}, practiceId={data.PracticeId})"
+                );
                 return Results.BadRequest("Principle SMS webhook is missing required message fields");
             }
-
-            if (await _store.ExistsAsync(data.Id))
+            else
             {
-                return Results.Ok(new { status = "duplicate" });
+                // Happy case handled below
             }
 
-            var smsBridgeId = _smsQueue.QueueSms(new SendSmsRequest(
-                PhoneNumber: data.PatientPhoneNumber,
-                Message: data.Body,
-                CallbackUrl: null,
-                SenderId: data.PracticePhoneNumber
-            ));
+            if (string.Equals(data.Direction, "outbound", StringComparison.OrdinalIgnoreCase))
+            {
+                if (await _store.ExistsAsync(data.Id))
+                {
+                    Logger.LogInfo(
+                        provider: SmsProviderType.JustRemotePhone,
+                        eventType: "PrincipleWebhook",
+                        details: $"Principle webhook duplicate: message id {data.Id} already processed"
+                    );
+                    return Results.Ok(new { status = "duplicate" });
+                }
+                else
+                {
+                    // Happy case handled below
+                }
 
-            await _store.AddAsync(new PrincipleOutboundSmsMapRecord(
-                PrincipleMessageId: data.Id,
-                SmsBridgeId: smsBridgeId.Value.ToString(),
-                PatientPhoneNumber: data.PatientPhoneNumber,
-                PatientId: data.PatientId,
-                PracticeId: data.PracticeId,
-                Body: data.Body,
-                ReceivedAt: DateTime.Now
-            ));
+                var smsBridgeId = _smsQueue.QueueSms(new SendSmsRequest(
+                    PhoneNumber: data.PatientPhoneNumber,
+                    Message: data.Body,
+                    CallbackUrl: null,
+                    SenderId: data.PracticePhoneNumber
+                ));
 
-            Logger.LogInfo(
-                provider: SmsProviderType.JustRemotePhone,
-                eventType: "PrincipleOutboundSmsQueued",
-                SMSBridgeID: smsBridgeId,
-                details: $"Queued Principle outbound SMS {data.Id} to {data.PatientPhoneNumber}"
-            );
+                await _store.AddAsync(new PrincipleOutboundSmsMapRecord(
+                    PrincipleMessageId: data.Id,
+                    SmsBridgeId: smsBridgeId.Value.ToString(),
+                    PatientPhoneNumber: data.PatientPhoneNumber,
+                    PatientId: data.PatientId,
+                    PracticeId: data.PracticeId,
+                    Body: data.Body,
+                    ReceivedAt: DateTime.Now
+                ));
 
-            return Results.Ok(new { status = "queued", smsBridgeId = smsBridgeId.Value.ToString() });
-        }
+                Logger.LogInfo(
+                    provider: SmsProviderType.JustRemotePhone,
+                    eventType: "PrincipleOutboundSmsQueued",
+                    SMSBridgeID: smsBridgeId,
+                    details: $"Queued Principle outbound SMS {data.Id} to {data.PatientPhoneNumber}"
+                );
 
-        private static bool IsSendableOutboundMessage(PrincipleWebhookPayload payload)
-        {
-            return payload.EventType == "message.created" &&
-                payload.Data?.Direction == "outbound" &&
-                payload.Data?.Status == "pending";
+                return Results.Ok(new { status = "queued", smsBridgeId = smsBridgeId.Value.ToString() });
+            }
+            else
+            {
+                Logger.LogInfo(
+                    provider: SmsProviderType.JustRemotePhone,
+                    eventType: "PrincipleWebhook",
+                    details: $"Principle webhook skipped: direction is '{data.Direction}' (only 'outbound' is processed)"
+                );
+                return Results.Ok(new { status = "skipped", reason = "not outbound" });
+            }
         }
 
         private static bool VerifySignature(string secret, string timestamp, string body, string signature)
