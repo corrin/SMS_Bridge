@@ -1,0 +1,21 @@
+{
+  "_comment": "Copy this to C:\\ProgramData\\SMS_Bridge\\install-settings.json and fill in real values. This file overrides secrets from appsettings.json. Never commit the real file.",
+  "BRIDGE_API_KEY": "<api-key-for-sms-bridge-http-auth>",
+  "SmsSettings": {
+    "EnableDebugMode": true
+  },
+  "Principle": {
+    "API_KEY": "<your-principle-api-key>",
+    "WEBHOOK_SECRET": "<shared-secret-for-principle-webhook-signatures>"
+  },
+  "Providers": {
+    "etxt": {
+      "API_KEY": "<etxt-api-key>",
+      "API_SECRET": "<etxt-api-secret>",
+      "CALLBACK_KEY": "<etxt-callback-key>"
+    }
+  },
+  "Hosting": {
+    "AppBaseUrl": "https://your-public-url.example.com"
+  }
+}

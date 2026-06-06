@@ -367,3 +367,4 @@ FodyWeavers.xsd
 ngrok.yml
 principle-api.yml
 .env
+install-settings.json
