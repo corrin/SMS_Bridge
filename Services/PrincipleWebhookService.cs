@@ -153,7 +153,8 @@ namespace SMS_Bridge.Services
                 // Happy case handled below
             }
 
-            if (string.Equals(data.Direction, "outbound", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(data.Direction, "outbound", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(data.Status, "pending", StringComparison.OrdinalIgnoreCase))
             {
                 if (await _store.ExistsAsync(data.Id))
                 {
