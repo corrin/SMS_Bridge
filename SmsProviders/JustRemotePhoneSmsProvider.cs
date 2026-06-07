@@ -68,7 +68,19 @@ namespace SMS_Bridge.SmsProviders
 
             OnMessageTimeout += HandleMessageTimeout;
 
+            Logger.LogInfo(
+                provider: SmsProviderType.JustRemotePhone,
+                eventType: "ConnectionAttempt",
+                details: $"Attempting connection. Initial ApplicationState: {_app.State}"
+            );
+
             _app.BeginConnect(true);
+
+            Logger.LogInfo(
+                provider: SmsProviderType.JustRemotePhone,
+                eventType: "ConnectionAttempt",
+                details: $"BeginConnect called. Resulting ApplicationState: {_app.State}, IsConnected: {_isConnected}"
+            );
             _connectionHealthCheckTimer = new Timer(RefreshConnection, null,
                 CONNECTION_CHECK_INTERVAL_MS, CONNECTION_CHECK_INTERVAL_MS);
         }

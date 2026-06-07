@@ -135,6 +135,8 @@ try
 
     var app = builder.Build();
 
+    app.Services.GetRequiredService<ISmsProvider>(); // Force instantiation at startup
+
     // Security middleware to validate API keys for non-localhost requests
     var smsGatewayApi = app.MapGroup("/smsgateway")
         .AddEndpointFilter(async (context, next) =>
