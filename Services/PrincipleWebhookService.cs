@@ -135,6 +135,23 @@ namespace SMS_Bridge.Services
                 // Happy case handled below
             }
 
+            // Principle sends many event types (patient.created test events, etc.). Only
+            // message.created carries an SMS; everything else must be acknowledged with 200,
+            // because a 4xx counts as a delivery failure and 10 failures disable the webhook.
+            if (!string.Equals(payload.EventType, "message.created", StringComparison.OrdinalIgnoreCase))
+            {
+                Logger.LogInfo(
+                    provider: SmsProviderType.JustRemotePhone,
+                    eventType: "PrincipleWebhook",
+                    details: $"Principle webhook skipped: eventType is '{payload.EventType}' (only 'message.created' is processed)"
+                );
+                return Results.Ok(new { status = "skipped", reason = "not a message event" });
+            }
+            else
+            {
+                // Happy case handled below
+            }
+
             var data = payload.Data;
             if (string.IsNullOrWhiteSpace(data.Id) ||
                 string.IsNullOrWhiteSpace(data.PatientPhoneNumber) ||
