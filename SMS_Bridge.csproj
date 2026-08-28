@@ -16,6 +16,20 @@
     <MSBuild Projects="$(MSBuildProjectFullPath)" Targets="Build" Properties="Configuration=Release" />
   </Target>
 
+  <!-- Stamp the git commit into InformationalVersion so a running build identifies itself
+       (startup log + gateway-status). Reads .git files directly: no git binary needed. -->
+  <Target Name="EmbedGitCommitHash" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo;AddSourceRevisionToInformationalVersion" Condition="Exists('$(MSBuildProjectDirectory)/.git/HEAD')">
+    <PropertyGroup>
+      <_GitHead>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/.git/HEAD').Trim())</_GitHead>
+    </PropertyGroup>
+    <PropertyGroup Condition="$(_GitHead.StartsWith('ref: ')) And Exists('$(MSBuildProjectDirectory)/.git/$(_GitHead.Substring(5))')">
+      <SourceRevisionId>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/.git/$(_GitHead.Substring(5))').Trim().Substring(0, 8))</SourceRevisionId>
+    </PropertyGroup>
+    <PropertyGroup Condition="!$(_GitHead.StartsWith('ref: '))">
+      <SourceRevisionId>$(_GitHead.Substring(0, 8))</SourceRevisionId>
+    </PropertyGroup>
+  </Target>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
   </ItemGroup>

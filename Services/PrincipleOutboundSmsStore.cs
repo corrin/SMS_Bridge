@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using System.Text.Json;
 using SMS_Bridge.Models;
+using SMS_Bridge.SmsProviders;
 
 namespace SMS_Bridge.Services
 {
@@ -65,8 +66,22 @@ namespace SMS_Bridge.Services
                 .Where(record => NormalisePhoneNumber(record.PatientPhoneNumber) == normalised
                               && record.ReceivedAt > cutoff)
                 .ToList();
-            return matching.LastOrDefault(r => r.PatientId != null)
+            var match = matching.LastOrDefault(r => r.PatientId != null)
                 ?? matching.LastOrDefault();
+            if (match == null)
+            {
+                // Distinguishes an empty/expired store from a number-format mismatch
+                Logger.LogInfo(
+                    provider: SmsProviderType.JustRemotePhone,
+                    eventType: "PrincipleStoreLookupMiss",
+                    details: $"No store match for {phoneNumber} (normalised: {normalised}): store holds {records.Count} records, {records.Count(r => r.ReceivedAt > cutoff)} within TTL"
+                );
+            }
+            else
+            {
+                // Happy case handled below
+            }
+            return match;
         }
 
         private static async Task<List<PrincipleOutboundSmsMapRecord>> LoadAsync()

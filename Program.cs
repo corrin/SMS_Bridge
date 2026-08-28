@@ -30,6 +30,21 @@ builder.WebHost.UseUrls($"http://*:{appPort}");  // Explicitly sets the port so 
 
 Console.WriteLine("Starting SMS_Bridge application...");
 
+// Build identity: InformationalVersion carries the git commit hash (see EmbedGitCommitHash in the csproj)
+var versionAttribute = (System.Reflection.AssemblyInformationalVersionAttribute?)Attribute.GetCustomAttribute(
+    System.Reflection.Assembly.GetExecutingAssembly(),
+    typeof(System.Reflection.AssemblyInformationalVersionAttribute));
+string buildVersion;
+if (versionAttribute == null)
+{
+    buildVersion = "unknown";
+}
+else
+{
+    buildVersion = versionAttribute.InformationalVersion;
+}
+Console.WriteLine($"Build: {buildVersion}");
+
 if (Environment.UserInteractive == false) // Checks if running as a service
 {
     builder.Host.UseWindowsService();
@@ -365,7 +380,7 @@ try
 
     smsGatewayApi.MapGet("/gateway-status", () =>
     {
-        return Results.Ok("Gateway is up and running");
+        return Results.Ok($"Gateway is up and running. Build: {buildVersion}");
     });
 
     smsGatewayApi.MapGet("/debug-status", () =>
@@ -402,7 +417,7 @@ try
     Logger.LogInfo(
         provider: configuredProviderType,
         eventType: "Configuration",
-        details: $"SMS Gateway initialized in {(isDebugMode ? "debug" : "production")} mode"
+        details: $"SMS Gateway initialized in {(isDebugMode ? "debug" : "production")} mode, build {buildVersion}"
     );
 
     app.Run();
