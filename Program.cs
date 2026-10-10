@@ -19,14 +19,11 @@ using System.Text.Json.Serialization;
 // On QUIT: Log all received messages in the dictionary
 // And reload that dictionary on dictionary on startup
 
-var appPort = 5170;
 var builder = WebApplication.CreateSlimBuilder(args);
 
 builder.Services.ConfigureHttpJsonOptions(opts =>
     opts.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase
 );
-
-builder.WebHost.UseUrls($"http://*:{appPort}");  // Explicitly sets the port so it can be deployed
 
 Console.WriteLine("Starting SMS_Bridge application...");
 
@@ -69,6 +66,12 @@ try
     configuration.AddJsonFile(Path.Combine(AppData.BasePath, "install-settings.json"), optional: false, reloadOnChange: true);
 
     ValidateConfigMerge();
+
+    // Caddy runs on the same machine and proxies to localhost:5170, so the default listens on
+    // loopback only. A proxy on another machine needs this set to the LAN address, with the
+    // Windows firewall limiting the port to that proxy.
+    builder.WebHost.UseUrls(configuration["Hosting:ListenUrl"]
+        ?? throw new InvalidOperationException("Hosting:ListenUrl must be configured in appsettings.json"));
 
     var smsProvider = configuration["SmsSettings:Provider"]?.ToLower() ??
         throw new InvalidOperationException("SMS provider must be configured in appsettings.json");

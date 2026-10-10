@@ -124,3 +124,18 @@ public class DebugModeDefaultTests
         Assert.False(json.RootElement.GetProperty("SmsSettings").GetProperty("EnableDebugMode").GetBoolean());
     }
 }
+
+public class ListenUrlDefaultTests
+{
+    [Fact]
+    public void Bridge_listens_on_loopback_only_by_default()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (!File.Exists(Path.Combine(dir.FullName, "SMS_Bridge.sln")))
+            dir = dir.Parent ?? throw new InvalidOperationException("Repo root not found");
+
+        using var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(dir.FullName, "appsettings.json")));
+        var url = new Uri(json.RootElement.GetProperty("Hosting").GetProperty("ListenUrl").GetString()!);
+        Assert.True(System.Net.IPAddress.Parse(url.Host).Equals(System.Net.IPAddress.Loopback));
+    }
+}
