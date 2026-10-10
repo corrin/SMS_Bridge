@@ -50,20 +50,11 @@ namespace SMS_Bridge.Models
         string[] AllowedTestNumbers
     );
 
-    // Started is when the link went down, not when the outage was declared two minutes later.
-    public record PhoneLinkOutage(
-        Guid Id,
-        DateTimeOffset Started
-    );
-
-    // The contract dental_practice_admin polls (its docs/plans/sms-link-alarm.md).
-    // Popup says whether this process can show the reception message box at all.
+    // Up means texts can go out: Call Centre is connected and can see the phone.
+    // Scripts/check-sms.ps1 reads this on reception and warns staff when it isn't true.
     public record PhoneStatusResponse(
         bool Up,
-        DateTimeOffset Since,
-        string Detail,
-        PhoneLinkOutage? Outage,
-        bool Popup
+        string Detail
     );
 
     public record MessageStatusRecord(

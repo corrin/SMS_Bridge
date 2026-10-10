@@ -122,15 +122,6 @@ try
     builder.Services.AddSingleton<SmsReceivedHandler>(services =>
         new SmsReceivedHandler(configuredProviderType, services.GetService<PrincipleInboundSmsWriter>()));
 
-        if (configuredProviderType == SmsProviderType.JustRemotePhone)
-        {
-            builder.Services.AddSingleton(_ => PhoneLinkAlarm.CreateMonitor());
-        }
-        else
-        {
-            // Other providers have no phone link to watch
-        }
-
         // Initialize the appropriate SMS provider based on configuration
         builder.Services.AddSingleton<ISmsProvider>(services =>
         {
@@ -141,7 +132,7 @@ try
             // We already parsed the provider type earlier, use it here
             ISmsProvider provider = configuredProviderType switch
             {
-                SmsProviderType.JustRemotePhone => new JustRemotePhoneSmsProvider(smsReceivedHandler, services.GetRequiredService<PhoneLinkMonitor>()),
+                SmsProviderType.JustRemotePhone => new JustRemotePhoneSmsProvider(smsReceivedHandler),
                 SmsProviderType.Diafaan => new DiafaanSmsProvider(httpClient, configuration, smsReceivedHandler),
                 SmsProviderType.ETxt => CreateETxtProvider(configuration, fileConfiguration, httpClient, smsReceivedHandler),
                 _ => throw new InvalidOperationException($"Unsupported SMS provider: {smsProvider}") // This case should not be reached if parsing is successful
@@ -368,7 +359,8 @@ try
 
     if (configuredProviderType == SmsProviderType.JustRemotePhone)
     {
-        smsGatewayApi.MapPhoneStatus();
+        smsGatewayApi.MapGet("/phone-status", (ISmsProvider smsProvider) =>
+            Results.Ok(((JustRemotePhoneSmsProvider)smsProvider).GetPhoneStatus()));
     }
     else
     {

@@ -13,6 +13,15 @@ namespace SMS_Bridge.SmsProviders
 {
 
 
+    // Kept apart from the provider, whose static fields create an SDK Application on first use.
+    public static class PhoneLink
+    {
+        // The SDK reports the phone as Unknown when Call Centre isn't connected to it, so a
+        // Connected application alone doesn't mean texts can go out.
+        public static bool IsUp(ApplicationState applicationState, PhoneState phoneState) =>
+            applicationState == ApplicationState.Connected && phoneState != PhoneState.Unknown;
+    }
+
     public class JustRemotePhoneSmsProvider : ISmsProvider
     {
         // Event that fires when a message times out waiting for delivery confirmation
@@ -32,11 +41,6 @@ namespace SMS_Bridge.SmsProviders
         private const int CONNECTION_CHECK_INTERVAL_MS = 3600000; // Check connection every hour
 
         private readonly SmsReceivedHandler _smsReceivedHandler;
-        private readonly PhoneLinkMonitor _linkMonitor;
-        // Events give the change as it happens; the poll covers any state the SDK fills in
-        // without raising an event, such as the phone's state at connect.
-        private readonly Timer _linkPollTimer;
-        private const int LINK_POLL_INTERVAL_MS = 15000;
 
 
         private void RefreshConnection(object? state)
@@ -63,10 +67,9 @@ namespace SMS_Bridge.SmsProviders
         }
 
 
-        public JustRemotePhoneSmsProvider(SmsReceivedHandler smsReceivedHandler, PhoneLinkMonitor linkMonitor)
+        public JustRemotePhoneSmsProvider(SmsReceivedHandler smsReceivedHandler)
         {
             _smsReceivedHandler = smsReceivedHandler;
-            _linkMonitor = linkMonitor;
 
             _app.ApplicationStateChanged += OnApplicationStateChanged;
             _app.Phone.PhoneStateChanged += OnPhoneStateChanged;
@@ -90,8 +93,6 @@ namespace SMS_Bridge.SmsProviders
             );
             _connectionHealthCheckTimer = new Timer(RefreshConnection, null,
                 CONNECTION_CHECK_INTERVAL_MS, CONNECTION_CHECK_INTERVAL_MS);
-            _linkPollTimer = new Timer(_ => ReportLink(_app.State, _app.Phone.State), null,
-                LINK_POLL_INTERVAL_MS, LINK_POLL_INTERVAL_MS);
         }
 
 
@@ -105,7 +106,6 @@ namespace SMS_Bridge.SmsProviders
                 eventType: "ApplicationStateChanged",
                 details: $"NewState: {newState}, OldState: {oldState}"
             );
-            ReportLink(newState, _app.Phone.State);
         }
 
         private void OnPhoneStateChanged(PhoneState newState, PhoneState oldState)
@@ -123,16 +123,16 @@ namespace SMS_Bridge.SmsProviders
             {
                 // A call starting or ending
             }
-            ReportLink(_app.State, newState);
         }
 
-        // The SDK reports the phone as Unknown when Call Centre isn't connected to it, so a
-        // Connected application alone doesn't mean texts can go out.
-        private void ReportLink(ApplicationState applicationState, PhoneState phoneState)
+        // Read live from the SDK on each request, so the answer can't go stale.
+        public PhoneStatusResponse GetPhoneStatus()
         {
-            _linkMonitor.Report(
-                up: applicationState == ApplicationState.Connected && phoneState != PhoneState.Unknown,
-                detail: $"Call Centre: {applicationState}, phone: {phoneState}"
+            var applicationState = _app.State;
+            var phoneState = _app.Phone.State;
+            return new PhoneStatusResponse(
+                Up: PhoneLink.IsUp(applicationState, phoneState),
+                Detail: $"Call Centre: {applicationState}, phone: {phoneState}"
             );
         }
 
