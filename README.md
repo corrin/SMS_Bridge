@@ -11,20 +11,16 @@ A lightweight SMS bridge application that integrates with multiple SMS providers
 - Fail-fast configuration for reliable operation.
 - Designed to run as a Windows service or a standalone console application.
 
-## Installation
+## Production installation
 
-1. **Copy Files**
-   ```bash
-   xcopy /E /I * "C:\Program Files\SMS_Bridge"
+Follow [PRODUCTION.md](PRODUCTION.md) for prerequisites, installation, Caddy configuration, HTTPS certificates, startup, and verification.
 
-# Install Insructions
+Production requires **SMS_Bridge, JustRemotePhone Call Centre with a connected phone, and Caddy**. Caddy serves `https://office.massey-smiles.co.nz` and forwards requests to the bridge's HTTP listener on port 5170. Caddy handles certificates outside the .NET application.
 
-xcopy /E /I * "C:\Program Files\SMS_Bridge"
+## Development
 
-# Update service path
-sc.exe config SMS_Bridge_Service binpath= "C:\Program Files\SMS_Bridge\SMS_Bridge.exe"
+See [TESTING.md](TESTING.md) for development using ngrok and an end-to-end Principle/SMS test. The application does not switch public domains based on its environment.
 
-# Set permissions
-icacls "C:\Program Files\SMS_Bridge" /grant "NT AUTHORITY\NetworkService":(OI)(CI)RX
-icacls "C:\Program Files\SMS_Bridge" /grant "BUILTIN\Administrators":(OI)(CI)F
-icacls "C:\Program Files\SMS_Bridge" /grant "NT AUTHORITY\SYSTEM":(OI)(CI)F
+## Configuration
+
+[appsettings.json](appsettings.json) declares the configuration keys and defaults. Copy [install-settings.example.json](install-settings.example.json) to `C:\ProgramData\SMS_Bridge\install-settings.json` for installation overrides and secrets. Keep real credentials out of the repository.
