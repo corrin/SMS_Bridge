@@ -113,19 +113,11 @@ This arrangement requires user logon after reboot and an active logged-in sessio
 
 ## SMS warning on reception
 
-Principle doesn't report texts that fail to go out, and the bridge can't report its own crash. So a scheduled task on reception, separate from the bridge, runs `Scripts\check-sms.ps1` every 5 minutes. If `phone-status` answers anything but `"up": true`, the task shows reception a warning box. That covers the phone being off or disconnected, Call Centre being closed, and the bridge being stopped, crashed or hung. The box asks staff to restart the phone, then ring Corrin. It appears on the first failed check. Once dismissed, it reappears at most once an hour while texts still aren't going out, counted from the dismissal. The time of the last dismissal is kept in `%LOCALAPPDATA%\SMS_Bridge\warned-at`, and a good check deletes it, so the next outage warns at once. If that file can't be read or written, the box shows on every check. The task never opens a second box while one is still open.
+Principle doesn't report texts that fail to go out, and the bridge can't report its own crash. So the warning comes from outside the bridge: dental_practice_admin's five-minute launcher on the server polls `GET /smsgateway/phone-status` with `X-API-Key`, and when the answer is anything but `"up": true`, it warns reception with `msg`. Nothing for this is installed on reception.
 
-The script ships in the release as `C:\Program Files\SMS_Bridge\Scripts\check-sms.ps1` and reads `BRIDGE_API_KEY` from `install-settings.json`. Signed in as the user who runs Call Centre, in PowerShell (no elevation needed), with Corrin's number in place of `<number>`:
+`phone-status` returns `{"up": bool, "detail": "Call Centre: <state>, phone: <state>"}`, read live from the phone SDK on each request. `up` means Call Centre is connected and can see the phone.
 
-```powershell
-$action = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument '--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\SMS_Bridge\Scripts\check-sms.ps1" -CorrinPhone "<number>"'
-$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)
-$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive
-$settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0
-Register-ScheduledTask -TaskName 'SMS warning' -Action $action -Trigger $trigger -Principal $principal -Settings $settings
-```
-
-`conhost.exe --headless` (Windows 11) runs the check with no console window. Launching `powershell.exe -WindowStyle Hidden` directly instead opens a terminal that takes focus for a moment every 5 minutes, which can swallow what reception is typing. Keep the quotes around the number. A number with spaces splits into several arguments without them, and the task then fails silently.
+The server reaches the bridge over the LAN, so the bridge must listen on reception's LAN address: set `Hosting.ListenUrl` in `install-settings.json` to `http://192.168.192.125:5170`, restart the bridge, and allow inbound TCP 5170 in reception's firewall from the server only. dental_practice_admin's `deploy/RELEASE.md` step 8 does this at cutover. The bridge then no longer answers on `localhost:5170`, so the checks in this guide use `http://192.168.192.125:5170` instead.
 
 ## Principle setup and acceptance checks
 
@@ -135,7 +127,6 @@ Set Principle's webhook URL to `https://office.massey-smiles.co.nz/smsgateway/we
 2. From outside the office, request `https://office.massey-smiles.co.nz/smsgateway/gateway-status` with `X-API-Key` set to `BRIDGE_API_KEY`. Expect HTTP 200 and the build identity, with a trusted certificate. Without that header, expect 401.
 3. Send an SMS from Principle to a controlled test patient/phone, then reply. Verify both directions and the `PrincipleOutboundSmsQueued` and `PrincipleInboundSmsCreated` log events.
 4. Reboot and verify startup, including user logon for the interactive task setup. Confirm the phone reconnects and both Caddy and the bridge recover.
-5. SMS warning: with everything working, no box appears within 5 minutes. Stop the bridge: the box appears within 5 minutes. Dismiss it: no box reappears for an hour. Start the bridge again, wait for one good check, then turn the phone's Wi-Fi off: the box appears within 5 minutes, without waiting out the hour. Turn Wi-Fi back on and check `phone-status` shows `"up": true` again.
 
 Opening the webhook in a browser sends GET; the endpoint requires POST. Test it with a signed Principle event. Debug mode redirects recipients in the general `/send-sms` endpoint, but Principle webhooks queue messages directly: do not rely on debug mode to redirect Principle test messages.
 
