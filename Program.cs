@@ -147,12 +147,13 @@ try
     });
 
     builder.Services.AddSingleton<SmsQueueService>();
+    builder.Services.AddApiKeyAuthentication(apiKey, configuredProviderType);
 
     var app = builder.Build();
 
     app.Services.GetRequiredService<ISmsProvider>(); // Force instantiation at startup
 
-    var smsGatewayApi = ApiKeyFilter.MapKeyedGroup(app, apiKey, configuredProviderType);
+    var smsGatewayApi = app.MapGroup("/smsgateway");
 
     // Endpoint for sending SMS messages
     smsGatewayApi.MapPost("/send-sms", (SendSmsRequest request, SmsQueueService smsQueueService) =>
@@ -366,7 +367,6 @@ try
 
     if (isDebugMode)
     {
-        // Nested under smsGatewayApi so the test endpoints inherit the API key filter.
         var testingApi = smsGatewayApi.MapGroup("/test");
         Testing.RegisterTestingEndpoints(testingApi, configuration);
 
@@ -377,7 +377,8 @@ try
         );
     }
 
-    var webhooksApi = app.MapGroup("/smsgateway/webhooks");
+    // Webhooks authenticate per-provider (HMAC or callback key) instead of X-API-Key.
+    var webhooksApi = app.MapGroup("/smsgateway/webhooks").AllowAnonymous();
     Webhooks.RegisterWebhookEndpoints(webhooksApi, builder.Configuration);
 
     webhooksApi.MapPost("/principle", async (HttpRequest request, PrincipleWebhookService principleWebhook) =>

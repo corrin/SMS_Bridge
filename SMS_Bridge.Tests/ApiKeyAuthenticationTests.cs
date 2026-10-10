@@ -10,28 +10,33 @@ using Xunit;
 
 namespace SMS_Bridge.Tests;
 
-public class ApiKeyFilterTests : IAsyncLifetime
+public class ApiKeyAuthenticationTests : IAsyncLifetime
 {
     private const string ApiKey = "test-key";
     private WebApplication _app = null!;
     private HttpClient _client = null!;
 
-    // Mirrors the group layout in Program.cs: keyed /smsgateway, /test nested under it,
-    // /smsgateway/webhooks as a separate unkeyed group.
+    // Same registration and group layout as Program.cs, plus an endpoint mapped outside
+    // any group to prove the key is required by default.
     public async Task InitializeAsync()
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseTestServer();
+        builder.Services.AddApiKeyAuthentication(ApiKey, SmsProviderType.JustRemotePhone);
         _app = builder.Build();
 
-        var gateway = ApiKeyFilter.MapKeyedGroup(_app, ApiKey, SmsProviderType.JustRemotePhone);
+        var gateway = _app.MapGroup("/smsgateway");
         gateway.MapGet("/gateway-status", () => Results.Ok());
+        gateway.MapPost("/send-sms", (SendBody body) => Results.Ok());
         gateway.MapGroup("/test").MapGet("/check-send-sms", () => Results.Ok());
-        _app.MapGroup("/smsgateway/webhooks").MapPost("/principle", () => Results.Ok());
+        _app.MapGet("/smsgateway/ungrouped", () => Results.Ok());
+        _app.MapGroup("/smsgateway/webhooks").AllowAnonymous().MapPost("/principle", () => Results.Ok());
 
         await _app.StartAsync();
         _client = _app.GetTestClient();
     }
+
+    public record SendBody(string PhoneNumber);
 
     public async Task DisposeAsync() => await _app.DisposeAsync();
 
@@ -73,6 +78,26 @@ public class ApiKeyFilterTests : IAsyncLifetime
     public async Task Test_endpoints_without_key_are_rejected(string? host)
     {
         var response = await Send(HttpMethod.Get, "/smsgateway/test/check-send-sms", host: host);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/smsgateway/ungrouped")]
+    [InlineData("/smsgateway/no-such-route")]
+    public async Task Endpoints_outside_the_gateway_group_still_need_the_key(string path)
+    {
+        var response = await Send(HttpMethod.Get, path);
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Unauthenticated_body_is_rejected_before_binding()
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/smsgateway/send-sms")
+        {
+            Content = new StringContent("not json", System.Text.Encoding.UTF8, "application/json")
+        };
+        var response = await _client.SendAsync(request);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
