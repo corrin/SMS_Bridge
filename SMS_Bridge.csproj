@@ -30,6 +30,13 @@
     </PropertyGroup>
   </Target>
 
+  <!-- The test project lives under this directory; keep its files out of the default globs. -->
+  <ItemGroup>
+    <Compile Remove="SMS_Bridge.Tests/**" />
+    <Content Remove="SMS_Bridge.Tests/**" />
+    <None Remove="SMS_Bridge.Tests/**" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
   </ItemGroup>

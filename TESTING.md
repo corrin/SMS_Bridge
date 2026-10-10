@@ -2,6 +2,8 @@
 
 ## Prerequisites
 
+This guide uses ngrok for development. Production uses Caddy and the office domain; follow [PRODUCTION.md](PRODUCTION.md) for installation and HTTPS setup. Use a controlled test patient/phone: Principle webhook messages bypass the general `/send-sms` endpoint's debug recipient redirection.
+
 - **JustRemotePhone "Call Centre"** running on the same machine (the bridge uses its SDK to send/receive SMS)
 - **Ngrok** installed and authenticated (`ngrok config add-authtoken <token>`)
 - **Principle API** accessible at `https://api.principle.dental` with valid credentials
@@ -38,7 +40,7 @@ Create at `C:\ProgramData\SMS_Bridge\install-settings.json`. Required — the ap
 }
 ```
 
-Principle integration is enabled by the presence of `Principle.API_KEY`. No separate flag needed.
+Set `Principle.Enabled` to `true` (the default in `appsettings.json`) and provide `Principle.API_KEY`. `Hosting.AppBaseUrl` is used by eTXT, not Principle; configure Principle's webhook URL in Principle itself.
 
 ## 2. Start Ngrok
 
@@ -46,7 +48,7 @@ Principle integration is enabled by the presence of `Principle.API_KEY`. No sepa
 ngrok http --domain=<your-subdomain>.ngrok-free.app 5170
 ```
 
-Verify the tunnel is live: `curl https://<your-subdomain>.ngrok-free.app/smsgateway/gateway-status`
+After starting the bridge in step 4, verify the tunnel by requesting `https://<your-subdomain>.ngrok-free.app/smsgateway/gateway-status` with `X-API-Key` set to `BRIDGE_API_KEY`. Expect HTTP 200; without the header, expect 401.
 
 ## 3. Configure Principle
 

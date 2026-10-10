@@ -70,7 +70,7 @@
    - Currently supports JustRemotePhone provider only
 
 ## Security Features
-- API key validation for non-localhost requests
+- `X-API-Key` required on every route except provider webhooks, which use HMAC or a callback key
 - Production machine validation
 - Debug mode restrictions
 - Test number redirection in debug mode
@@ -82,7 +82,10 @@
 - Provider-specific configurations
 
 ## Deployment
+
+Production uses Caddy to terminate HTTPS for `office.massey-smiles.co.nz` and proxy requests to SMS_Bridge on HTTP port 5170. Caddy manages certificate issuance and renewal separately from the application. Development uses an ngrok HTTPS tunnel to the same application port. See [PRODUCTION.md](PRODUCTION.md) for prerequisites, configuration, startup constraints, and verification.
+
 - Can run as Windows Service or Console application
-- Supports automatic service installation
-- Configurable port binding
-- File permission management for service account 
+- Startup is configured separately through Windows services or Task Scheduler; see the production guide for working-directory and phone-session requirements.
+- The application listens on `Hosting.ListenUrl`, by default `http://localhost:5170` (loopback only), so only a proxy on the same machine can reach it.
+- Installation and data-directory permissions must allow access by the runtime account.

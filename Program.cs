@@ -19,14 +19,11 @@ using System.Text.Json.Serialization;
 // On QUIT: Log all received messages in the dictionary
 // And reload that dictionary on dictionary on startup
 
-var appPort = 5170;
 var builder = WebApplication.CreateSlimBuilder(args);
 
 builder.Services.ConfigureHttpJsonOptions(opts =>
     opts.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase
 );
-
-builder.WebHost.UseUrls($"http://*:{appPort}");  // Explicitly sets the port so it can be deployed
 
 Console.WriteLine("Starting SMS_Bridge application...");
 
@@ -69,6 +66,12 @@ try
     configuration.AddJsonFile(Path.Combine(AppData.BasePath, "install-settings.json"), optional: false, reloadOnChange: true);
 
     ValidateConfigMerge();
+
+    // Caddy runs on the same machine and proxies to localhost:5170, so the default listens on
+    // loopback only; Kestrel binds "localhost" to both 127.0.0.1 and ::1. A proxy on another machine needs this set to the LAN address, with the
+    // Windows firewall limiting the port to that proxy.
+    builder.WebHost.UseUrls(configuration["Hosting:ListenUrl"]
+        ?? throw new InvalidOperationException("Hosting:ListenUrl must be configured in appsettings.json"));
 
     var smsProvider = configuration["SmsSettings:Provider"]?.ToLower() ??
         throw new InvalidOperationException("SMS provider must be configured in appsettings.json");
@@ -147,43 +150,14 @@ try
     });
 
     builder.Services.AddSingleton<SmsQueueService>();
+    builder.Services.AddApiKeyAuthentication(apiKey, configuredProviderType);
 
     var app = builder.Build();
 
     app.Services.GetRequiredService<ISmsProvider>(); // Force instantiation at startup
 
-    // Security middleware to validate API keys for non-localhost requests
-    var smsGatewayApi = app.MapGroup("/smsgateway")
-        .AddEndpointFilter(async (context, next) =>
-        {
-            var http = context.HttpContext;
+    var smsGatewayApi = app.MapGroup("/smsgateway");
 
-            if (http.Request.Host.Host.ToLower() is not ("localhost" or "127.0.0.1"))
-            {
-                if (!http.Request.Headers.TryGetValue("X-API-Key", out var sent)
-                 || sent != apiKey)
-                {
-                    Logger.LogWarning(
-                        provider: configuredProviderType,
-                        eventType: "UnauthorizedAccess",
-                        details: $"Missing/invalid global API key from {http.Connection.RemoteIpAddress}",
-                        SMSBridgeID: default
-                    );
-                    return Results.Unauthorized();
-                }
-                else
-                {
-                    // Happy case handled below
-                }
-            }
-            else
-            {
-                // Localhost, skip API key check
-            }
-
-            return await next(context);
-        });
-    
     // Endpoint for sending SMS messages
     smsGatewayApi.MapPost("/send-sms", (SendSmsRequest request, SmsQueueService smsQueueService) =>
     {
@@ -396,7 +370,7 @@ try
 
     if (isDebugMode)
     {
-        var testingApi = app.MapGroup("/smsgateway/test");
+        var testingApi = smsGatewayApi.MapGroup("/test");
         Testing.RegisterTestingEndpoints(testingApi, configuration);
 
         Logger.LogInfo(
@@ -406,7 +380,8 @@ try
         );
     }
 
-    var webhooksApi = app.MapGroup("/smsgateway/webhooks");
+    // Webhooks authenticate per-provider (HMAC or callback key) instead of X-API-Key.
+    var webhooksApi = app.MapGroup("/smsgateway/webhooks").AllowAnonymous();
     Webhooks.RegisterWebhookEndpoints(webhooksApi, builder.Configuration);
 
     webhooksApi.MapPost("/principle", async (HttpRequest request, PrincipleWebhookService principleWebhook) =>
