@@ -136,6 +136,6 @@ public class ListenUrlDefaultTests
 
         using var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(dir.FullName, "appsettings.json")));
         var url = new Uri(json.RootElement.GetProperty("Hosting").GetProperty("ListenUrl").GetString()!);
-        Assert.True(System.Net.IPAddress.Parse(url.Host).Equals(System.Net.IPAddress.Loopback));
+        Assert.True(url.IsLoopback);
     }
 }

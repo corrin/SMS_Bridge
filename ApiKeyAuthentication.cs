@@ -77,14 +77,23 @@ namespace SMS_Bridge
 
         // AuthenticationHandler has its own Logger property, hence the qualified name below.
         // Runs only when an endpoint that needs the key is requested without a valid one.
+        // Caddy forwards every path, so internet scanners' probes outside /smsgateway are rejected unlogged.
         protected override Task HandleChallengeAsync(AuthenticationProperties properties)
         {
-            Services.Logger.LogWarning(
-                provider: Options.Provider,
-                eventType: "UnauthorizedAccess",
-                details: $"Missing/invalid global API key from {Context.Connection.RemoteIpAddress} for {Request.Method} {Request.Path}",
-                SMSBridgeID: default
-            );
+            if (Request.Path.StartsWithSegments("/smsgateway"))
+            {
+                Services.Logger.LogWarning(
+                    provider: Options.Provider,
+                    eventType: "UnauthorizedAccess",
+                    details: $"Missing/invalid global API key from {Context.Connection.RemoteIpAddress} for {Request.Method} {Request.Path}",
+                    SMSBridgeID: default
+                );
+            }
+            else
+            {
+                // Not a bridge route
+            }
+
             return base.HandleChallengeAsync(properties);
         }
     }

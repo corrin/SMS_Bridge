@@ -87,5 +87,5 @@ Production uses Caddy to terminate HTTPS for `office.massey-smiles.co.nz` and pr
 
 - Can run as Windows Service or Console application
 - Startup is configured separately through Windows services or Task Scheduler; see the production guide for working-directory and phone-session requirements.
-- The application listens on `Hosting.ListenUrl`, by default `http://127.0.0.1:5170`, so only a proxy on the same machine can reach it.
+- The application listens on `Hosting.ListenUrl`, by default `http://localhost:5170` (loopback only), so only a proxy on the same machine can reach it.
 - Installation and data-directory permissions must allow access by the runtime account.

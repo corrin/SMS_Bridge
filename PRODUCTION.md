@@ -64,7 +64,7 @@ In another terminal, verify `curl.exe -H "X-API-Key: <BRIDGE_API_KEY>" http://lo
 
 1. Point the DNS A record for `office.massey-smiles.co.nz` at the office public IP. If an AAAA record exists, IPv6 must also reach Caddy.
 2. Forward inbound TCP 80 and 443 on the router to the Caddy host and allow them through Windows Firewall. Keep these routes available for certificate validation and renewal. Caddy also needs outbound HTTPS and DNS resolution.
-3. Keep port 5170 off the public Internet. The bridge listens on `http://127.0.0.1:5170` (`Hosting.ListenUrl`), so only processes on the same machine can reach it. Keep Caddy's administration port 2019 private.
+3. Keep port 5170 off the public Internet. The bridge listens on `http://localhost:5170` (`Hosting.ListenUrl`), so only processes on the same machine can reach it. Keep Caddy's administration port 2019 private.
 4. Place `caddy.exe` in `C:\caddy`. For a new installation, save this example as `C:\caddy\Caddyfile`. For an existing site, merge the route into its existing site block, preserving other applications and settings.
 
 ```caddyfile

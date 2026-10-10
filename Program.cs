@@ -68,7 +68,7 @@ try
     ValidateConfigMerge();
 
     // Caddy runs on the same machine and proxies to localhost:5170, so the default listens on
-    // loopback only. A proxy on another machine needs this set to the LAN address, with the
+    // loopback only; Kestrel binds "localhost" to both 127.0.0.1 and ::1. A proxy on another machine needs this set to the LAN address, with the
     // Windows firewall limiting the port to that proxy.
     builder.WebHost.UseUrls(configuration["Hosting:ListenUrl"]
         ?? throw new InvalidOperationException("Hosting:ListenUrl must be configured in appsettings.json"));
