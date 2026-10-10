@@ -51,7 +51,7 @@ namespace SMS_Bridge.Models
     );
 
     // Up means texts can go out: Call Centre is connected and can see the phone.
-    // dental_practice_admin polls this from the server and warns reception when it isn't true.
+    // Scripts/check-sms.ps1 on reception polls this and warns staff when it isn't true.
     public record PhoneStatusResponse(
         bool Up,
         string Detail
