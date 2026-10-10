@@ -18,6 +18,7 @@ namespace SMS_Bridge
     [JsonSerializable(typeof(CheckSendSmsResponse))]
     [JsonSerializable(typeof(BulkSmsResponse))]
     [JsonSerializable(typeof(DebugStatusResponse))]
+    [JsonSerializable(typeof(PhoneStatusResponse))]
     [JsonSerializable(typeof(IEnumerable<MessageStatusRecord>))]
     [JsonSerializable(typeof(PrincipleWebhookPayload))]
     [JsonSerializable(typeof(PrincipleSmsMessageCreate))]

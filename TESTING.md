@@ -69,6 +69,7 @@ dotnet run
 Check:
 - `GET /smsgateway/gateway-status` → "Gateway is up and running"
 - `GET /smsgateway/debug-status` → `isDebugMode: true` + your test phone number
+- `GET /smsgateway/phone-status` → `up: true` once Call Centre is connected to the phone
 
 ## 5. Run the Test
 

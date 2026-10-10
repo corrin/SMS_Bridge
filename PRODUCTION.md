@@ -115,7 +115,7 @@ This arrangement requires user logon after reboot and an active logged-in sessio
 
 Set Principle's webhook URL to `https://office.massey-smiles.co.nz/smsgateway/webhooks/principle`, enable `message.created` events, and use the same signing secret as `Principle.WEBHOOK_SECRET`. The webhook validates `X-Principle-Signature` and `X-Principle-Timestamp`; it does not require the general gateway's `X-API-Key` header.
 
-1. Verify the local gateway-status endpoint as above.
+1. Verify the local gateway-status endpoint as above. With the same header, `http://localhost:5170/smsgateway/phone-status` should return `"up": true` and `"popup": true`. `popup` is false when the bridge runs without a desktop, for example as a service, and then it can't show reception the warning box when the phone link drops.
 2. From outside the office, request `https://office.massey-smiles.co.nz/smsgateway/gateway-status` with `X-API-Key` set to `BRIDGE_API_KEY`. Expect HTTP 200 and the build identity, with a trusted certificate. Without that header, expect 401.
 3. Send an SMS from Principle to a controlled test patient/phone, then reply. Verify both directions and the `PrincipleOutboundSmsQueued` and `PrincipleInboundSmsCreated` log events.
 4. Reboot and verify startup, including user logon for the interactive task setup. Confirm the phone reconnects and both Caddy and the bridge recover.

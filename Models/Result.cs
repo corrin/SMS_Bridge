@@ -50,6 +50,22 @@ namespace SMS_Bridge.Models
         string[] AllowedTestNumbers
     );
 
+    // Started is when the link went down, not when the outage was declared two minutes later.
+    public record PhoneLinkOutage(
+        Guid Id,
+        DateTimeOffset Started
+    );
+
+    // The contract dental_practice_admin polls (its docs/plans/sms-link-alarm.md).
+    // Popup says whether this process can show the reception message box at all.
+    public record PhoneStatusResponse(
+        bool Up,
+        DateTimeOffset Since,
+        string Detail,
+        PhoneLinkOutage? Outage,
+        bool Popup
+    );
+
     public record MessageStatusRecord(
         SmsBridgeId SMSBridgeID,
         ProviderMessageId ProviderMessageID,
