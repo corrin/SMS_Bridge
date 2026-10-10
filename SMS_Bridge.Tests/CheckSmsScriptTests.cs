@@ -14,12 +14,15 @@ using Xunit;
 namespace SMS_Bridge.Tests;
 
 // Runs Scripts/check-sms.ps1 under Windows PowerShell against a fake bridge on a real port.
-// -NoBox stops it before the message box; exit code 1 is the path that shows it.
+// -NoBox stops it before the message box; exit code 1 is the path that shows it, 2 is a reminder
+// held back because the box was dismissed under an hour ago.
 public class CheckSmsScriptTests : IAsyncLifetime
 {
     private const string ApiKey = "test-key";
     private WebApplication _bridge = null!;
     private string _baseUrl = null!;
+    private readonly string _tempDir = Directory.CreateTempSubdirectory("check-sms-").FullName;
+    private string Marker => Path.Combine(_tempDir, "SMS_Bridge", "warned-at");
 
     public async Task InitializeAsync()
     {
@@ -43,7 +46,11 @@ public class CheckSmsScriptTests : IAsyncLifetime
         _baseUrl = _bridge.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
     }
 
-    public async Task DisposeAsync() => await _bridge.DisposeAsync();
+    public async Task DisposeAsync()
+    {
+        await _bridge.DisposeAsync();
+        Directory.Delete(_tempDir, recursive: true);
+    }
 
     private static string ScriptPath()
     {
@@ -55,7 +62,7 @@ public class CheckSmsScriptTests : IAsyncLifetime
         return Path.Combine(dir.FullName, "Scripts", "check-sms.ps1");
     }
 
-    private static async Task<int> RunScript(string url, string key = ApiKey)
+    private async Task<int> RunScript(string url, string key = ApiKey, string? marker = null)
     {
         var start = new ProcessStartInfo("powershell.exe")
         {
@@ -64,7 +71,7 @@ public class CheckSmsScriptTests : IAsyncLifetime
             RedirectStandardError = true,
         };
         foreach (var arg in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ScriptPath(),
-                     "-CorrinPhone", "000", "-Url", url, "-ApiKey", key, "-TimeoutSec", "2", "-NoBox" })
+                     "-CorrinPhone", "000", "-Url", url, "-ApiKey", key, "-TimeoutSec", "2", "-MarkerPath", marker ?? Marker, "-NoBox" })
         {
             start.ArgumentList.Add(arg);
         }
@@ -95,6 +102,59 @@ public class CheckSmsScriptTests : IAsyncLifetime
 
     [Fact]
     public async Task Up_that_is_not_a_boolean_gives_the_box() => Assert.Equal(1, await RunScript($"{_baseUrl}/up-as-text"));
+
+    [Fact]
+    public async Task Down_again_under_an_hour_after_dismissal_gives_no_box()
+    {
+        Assert.Equal(1, await RunScript($"{_baseUrl}/down"));
+        File.SetLastWriteTime(Marker, DateTime.Now.AddMinutes(-59));
+        Assert.Equal(2, await RunScript($"{_baseUrl}/down"));
+    }
+
+    [Fact]
+    public async Task Down_an_hour_after_dismissal_gives_the_box_and_restarts_the_hour()
+    {
+        Assert.Equal(1, await RunScript($"{_baseUrl}/down"));
+        File.SetLastWriteTime(Marker, DateTime.Now.AddMinutes(-61));
+        Assert.Equal(1, await RunScript($"{_baseUrl}/down"));
+        Assert.Equal(2, await RunScript($"{_baseUrl}/down"));
+    }
+
+    [Fact]
+    public async Task Up_clears_the_marker_so_the_next_down_warns_at_once()
+    {
+        Assert.Equal(1, await RunScript($"{_baseUrl}/down"));
+        Assert.Equal(0, await RunScript($"{_baseUrl}/up"));
+        Assert.False(File.Exists(Marker));
+        Assert.Equal(1, await RunScript($"{_baseUrl}/down"));
+    }
+
+    [Fact]
+    public async Task Unreachable_bridge_is_reminded_like_any_other_down()
+    {
+        Assert.Equal(1, await RunScript($"{_baseUrl}/error"));
+        Assert.Equal(2, await RunScript($"{_baseUrl}/hangs"));
+    }
+
+    [Fact]
+    public async Task Unwritable_marker_still_gives_the_box_every_time()
+    {
+        // A file where the marker's folder should be makes every write fail.
+        var blocker = Path.Combine(_tempDir, "not-a-folder");
+        File.WriteAllText(blocker, "");
+        var marker = Path.Combine(blocker, "warned-at");
+
+        Assert.Equal(1, await RunScript($"{_baseUrl}/down", marker: marker));
+        Assert.Equal(1, await RunScript($"{_baseUrl}/down", marker: marker));
+    }
+
+    [Fact]
+    public async Task Marker_dated_in_the_future_does_not_hold_the_box_back()
+    {
+        Assert.Equal(1, await RunScript($"{_baseUrl}/down"));
+        File.SetLastWriteTime(Marker, DateTime.Now.AddHours(5));
+        Assert.Equal(1, await RunScript($"{_baseUrl}/down"));
+    }
 
     [Fact]
     public async Task Refused_connection_gives_the_box()
