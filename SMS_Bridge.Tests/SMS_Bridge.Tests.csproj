@@ -17,6 +17,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Reference Include="RemotePhoneService">
+      <HintPath>C:\Program Files (x86)\JustPhone\CallCenter\SDK\bin\RemotePhoneService.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\SMS_Bridge.csproj" />
   </ItemGroup>
 

@@ -13,6 +13,15 @@ namespace SMS_Bridge.SmsProviders
 {
 
 
+    // Kept apart from the provider, whose static fields create an SDK Application on first use.
+    public static class PhoneLink
+    {
+        // The SDK reports the phone as Unknown when Call Centre isn't connected to it, so a
+        // Connected application alone doesn't mean texts can go out.
+        public static bool IsUp(ApplicationState applicationState, PhoneState phoneState) =>
+            applicationState == ApplicationState.Connected && phoneState != PhoneState.Unknown;
+    }
+
     public class JustRemotePhoneSmsProvider : ISmsProvider
     {
         // Event that fires when a message times out waiting for delivery confirmation
@@ -63,6 +72,7 @@ namespace SMS_Bridge.SmsProviders
             _smsReceivedHandler = smsReceivedHandler;
 
             _app.ApplicationStateChanged += OnApplicationStateChanged;
+            _app.Phone.PhoneStateChanged += OnPhoneStateChanged;
             _app.Phone.SMSSendResult += OnSMSSendResult;
             _app.Phone.SMSReceived += OnSMSReceived;
 
@@ -96,7 +106,34 @@ namespace SMS_Bridge.SmsProviders
                 eventType: "ApplicationStateChanged",
                 details: $"NewState: {newState}, OldState: {oldState}"
             );
+        }
 
+        private void OnPhoneStateChanged(PhoneState newState, PhoneState oldState)
+        {
+            // Idle, Ringing and OffHook change with every call; only Unknown matters to the link.
+            if (newState == PhoneState.Unknown || oldState == PhoneState.Unknown)
+            {
+                Logger.LogInfo(
+                    provider: SmsProviderType.JustRemotePhone,
+                    eventType: "PhoneStateChanged",
+                    details: $"NewState: {newState}, OldState: {oldState}"
+                );
+            }
+            else
+            {
+                // A call starting or ending
+            }
+        }
+
+        // Read live from the SDK on each request, so the answer can't go stale.
+        public PhoneStatusResponse GetPhoneStatus()
+        {
+            var applicationState = _app.State;
+            var phoneState = _app.Phone.State;
+            return new PhoneStatusResponse(
+                Up: PhoneLink.IsUp(applicationState, phoneState),
+                Detail: $"Call Centre: {applicationState}, phone: {phoneState}"
+            );
         }
 
         private async Task<bool> EnsureConnectedAsync()

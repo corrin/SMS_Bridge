@@ -50,6 +50,13 @@ namespace SMS_Bridge.Models
         string[] AllowedTestNumbers
     );
 
+    // Up means texts can go out: Call Centre is connected and can see the phone.
+    // Scripts/check-sms.ps1 on reception polls this and warns staff when it isn't true.
+    public record PhoneStatusResponse(
+        bool Up,
+        string Detail
+    );
+
     public record MessageStatusRecord(
         SmsBridgeId SMSBridgeID,
         ProviderMessageId ProviderMessageID,

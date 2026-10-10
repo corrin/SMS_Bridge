@@ -357,6 +357,16 @@ try
         return Results.Ok($"Gateway is up and running. Build: {buildVersion}");
     });
 
+    if (configuredProviderType == SmsProviderType.JustRemotePhone)
+    {
+        smsGatewayApi.MapGet("/phone-status", (ISmsProvider smsProvider) =>
+            Results.Ok(((JustRemotePhoneSmsProvider)smsProvider).GetPhoneStatus()));
+    }
+    else
+    {
+        // Other providers have no phone link to report
+    }
+
     smsGatewayApi.MapGet("/debug-status", () =>
     {
         var resp = new DebugStatusResponse(
