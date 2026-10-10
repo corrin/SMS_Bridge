@@ -152,38 +152,8 @@ try
 
     app.Services.GetRequiredService<ISmsProvider>(); // Force instantiation at startup
 
-    // Security middleware to validate API keys for non-localhost requests
-    var smsGatewayApi = app.MapGroup("/smsgateway")
-        .AddEndpointFilter(async (context, next) =>
-        {
-            var http = context.HttpContext;
+    var smsGatewayApi = ApiKeyFilter.MapKeyedGroup(app, apiKey, configuredProviderType);
 
-            if (http.Request.Host.Host.ToLower() is not ("localhost" or "127.0.0.1"))
-            {
-                if (!http.Request.Headers.TryGetValue("X-API-Key", out var sent)
-                 || sent != apiKey)
-                {
-                    Logger.LogWarning(
-                        provider: configuredProviderType,
-                        eventType: "UnauthorizedAccess",
-                        details: $"Missing/invalid global API key from {http.Connection.RemoteIpAddress}",
-                        SMSBridgeID: default
-                    );
-                    return Results.Unauthorized();
-                }
-                else
-                {
-                    // Happy case handled below
-                }
-            }
-            else
-            {
-                // Localhost, skip API key check
-            }
-
-            return await next(context);
-        });
-    
     // Endpoint for sending SMS messages
     smsGatewayApi.MapPost("/send-sms", (SendSmsRequest request, SmsQueueService smsQueueService) =>
     {
@@ -396,7 +366,8 @@ try
 
     if (isDebugMode)
     {
-        var testingApi = app.MapGroup("/smsgateway/test");
+        // Nested under smsGatewayApi so the test endpoints inherit the API key filter.
+        var testingApi = smsGatewayApi.MapGroup("/test");
         Testing.RegisterTestingEndpoints(testingApi, configuration);
 
         Logger.LogInfo(

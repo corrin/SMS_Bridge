@@ -2,7 +2,7 @@
   "_comment": "Copy this to C:\\ProgramData\\SMS_Bridge\\install-settings.json and fill in real values. This file overrides secrets from appsettings.json. Never commit the real file.",
   "BRIDGE_API_KEY": "<api-key-for-sms-bridge-http-auth>",
   "SmsSettings": {
-    "EnableDebugMode": true
+    "EnableDebugMode": false
   },
   "Principle": {
     "API_KEY": "<your-principle-api-key>",
