@@ -104,6 +104,24 @@ public class CheckSmsScriptTests : IAsyncLifetime
     public async Task Up_that_is_not_a_boolean_gives_the_box() => Assert.Equal(1, await RunScript($"{_baseUrl}/up-as-text"));
 
     [Fact]
+    public async Task First_down_writes_the_marker_after_deciding_to_warn()
+    {
+        Assert.False(File.Exists(Marker));
+        Assert.Equal(1, await RunScript($"{_baseUrl}/down"));
+        Assert.True(File.Exists(Marker));
+    }
+
+    [Fact]
+    public async Task Marker_left_from_a_dismissal_over_an_hour_ago_still_warns()
+    {
+        // A box killed by sign-out or reboot writes nothing, so the newest marker is the last real dismissal.
+        Directory.CreateDirectory(Path.GetDirectoryName(Marker)!);
+        File.WriteAllText(Marker, "");
+        File.SetLastWriteTime(Marker, DateTime.Now.AddMinutes(-90));
+        Assert.Equal(1, await RunScript($"{_baseUrl}/down"));
+    }
+
+    [Fact]
     public async Task Down_again_under_an_hour_after_dismissal_gives_no_box()
     {
         Assert.Equal(1, await RunScript($"{_baseUrl}/down"));

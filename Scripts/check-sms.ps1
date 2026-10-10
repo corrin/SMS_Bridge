@@ -4,8 +4,10 @@
 # connection, a missing key) counts as down. Setup is in PRODUCTION.md, "SMS warning on reception".
 #
 # The box shows on the first down check. After it's dismissed, it shows again at most once an hour,
-# timed from the dismissal by the marker file's LastWriteTime. An up check deletes the marker, so
-# the next outage warns at once. A marker that can't be read or written never stops the box.
+# timed from the dismissal by the marker file's LastWriteTime. The marker is written only once the
+# box closes: a box killed by a sign-out or reboot leaves none, so the next session warns at once.
+# Task Scheduler's IgnoreNew stops a second box while one is open. An up check deletes the marker,
+# so the next outage warns at once. A marker that can't be read or written never stops the box.
 #
 # Exit code: 0 texts can go out, 1 the box was raised, 2 down but dismissed under an hour ago.
 param(
@@ -57,7 +59,6 @@ catch {
     # Unreadable marker: warn
 }
 
-Touch-Marker
 if (-not $NoBox) {
     Add-Type -AssemblyName System.Windows.Forms
     # A hidden topmost owner keeps the box above whatever reception has open.
@@ -67,6 +68,5 @@ if (-not $NoBox) {
         "SMS warning", "OK", "Warning") | Out-Null
     $owner.Dispose()
 }
-# The hour counts from the dismissal, not from when the box appeared.
 Touch-Marker
 exit 1

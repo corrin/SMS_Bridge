@@ -118,14 +118,14 @@ Principle doesn't report texts that fail to go out, and the bridge can't report 
 The script ships in the release as `C:\Program Files\SMS_Bridge\Scripts\check-sms.ps1` and reads `BRIDGE_API_KEY` from `install-settings.json`. Signed in as the user who runs Call Centre, in PowerShell (no elevation needed), with Corrin's number in place of `<number>`:
 
 ```powershell
-$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\Program Files\SMS_Bridge\Scripts\check-sms.ps1" -CorrinPhone "<number>"'
+$action = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument '--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\SMS_Bridge\Scripts\check-sms.ps1" -CorrinPhone "<number>"'
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0
 Register-ScheduledTask -TaskName 'SMS warning' -Action $action -Trigger $trigger -Principal $principal -Settings $settings
 ```
 
-Keep the quotes around the number. A number with spaces splits into several arguments without them, and the task then fails silently.
+`conhost.exe --headless` (Windows 11) runs the check with no console window. Launching `powershell.exe -WindowStyle Hidden` directly instead opens a terminal that takes focus for a moment every 5 minutes, which can swallow what reception is typing. Keep the quotes around the number. A number with spaces splits into several arguments without them, and the task then fails silently.
 
 ## Principle setup and acceptance checks
 
