@@ -1,115 +1,53 @@
 # Production installation
 
-## Layout and prerequisites
-
 ```text
-Principle -> HTTPS office.massey-smiles.co.nz:443 -> Caddy
-          -> HTTP 127.0.0.1:5170 -> SMS_Bridge -> JustRemotePhone -> phone
+Principle -> HTTPS office.massey-smiles.co.nz:443 -> Caddy (on OPENDENTAL)
+          -> HTTP 127.0.0.1:5170 -> SMS_Bridge -> JustRemotePhone Call Centre -> phone
 ```
 
-The public office endpoint identifies itself as Caddy. The repository's diagnostic script targets `RECEPTION-AIO`. The deployed Caddyfile, service account, certificate storage location, and router rules are not stored here. Inspect those on the production machine before changing an existing installation. The example below assumes Caddy and the bridge run on the same Windows host; it is not a copy of the deployed configuration.
+The bridge runs on OPENDENTAL in MSAdministrator's session, beside Call Centre: the JustRemotePhone
+SDK drives Call Centre's desktop, so both need a signed-in session. MSAdministrator signs in
+automatically after a restart. Caddy and its configuration belong to the admin app
+([dental_practice_admin](https://github.com/corrin/dental_practice_admin), `deploy/Caddyfile`),
+whose install script sets them up.
 
-Install or provide:
+## Install and upgrade
 
-- Windows x64, with administrator access for services and firewall configuration.
-- JustRemotePhone Call Centre, its SDK, and a paired phone capable of sending and receiving SMS. Verify connectivity under the account/session that will run the bridge.
-- The complete published SMS_Bridge release. Framework-dependent builds require the .NET 8 ASP.NET Core Runtime for Windows x64; self-contained builds include the runtime.
-- [Caddy for Windows amd64](https://caddyserver.com/download), using the standard distribution.
-- Access to DNS, the office router/firewall, and Principle's webhook settings and API credentials.
-
-Development uses ngrok instead of Caddy; see [TESTING.md](TESTING.md). Both environments use HTTP port 5170 inside the bridge. Neither `ASPNETCORE_ENVIRONMENT` nor `SmsSettings.EnableDebugMode` selects a public domain. Development and production on the same machine share `C:\ProgramData\SMS_Bridge\install-settings.json`.
-
-## Install and configure SMS_Bridge
-
-To build from source, install the .NET 8 SDK on the build machine. The project references `Newtonsoft.Json.dll` from `C:\Program Files (x86)\Open Dental` and `RemotePhoneService.dll` from `C:\Program Files (x86)\JustPhone\CallCenter\SDK\bin`; these dependencies must exist. From the repository directory:
+In an elevated PowerShell on the server, as MSAdministrator:
 
 ```powershell
-dotnet publish .\SMS_Bridge.csproj -c Release -r win-x64 --self-contained true -o .\artifacts\production
+Invoke-WebRequest https://raw.githubusercontent.com/corrin/SMS_Bridge/master/Scripts/install_bridge.ps1 -OutFile $env:TEMP\install_bridge.ps1; Set-ExecutionPolicy Bypass -Scope Process -Force; & $env:TEMP\install_bridge.ps1
 ```
 
-Copy the complete publish output, including dependency DLLs and `appsettings.json`, to `C:\Program Files\SMS_Bridge`. Stop an existing bridge before replacing its binaries and retain the previous release for rollback.
+It installs the latest GitHub release into `C:\Program Files\SMS_Bridge`, registers the "SMS
+bridge" task that starts it at MSAdministrator's sign-in and restarts it if it stops, and opens
+port 5170 to reception only. On the first install it asks for Principle's API key and webhook
+signing secret, generates `BRIDGE_API_KEY`, and writes `C:\ProgramData\SMS_Bridge\install-settings.json`
+readable only by administrators and MSAdministrator; upgrades keep that file. `-Tag <release>`
+installs an earlier release, to roll back. When MSAdministrator is signed in, it starts the bridge
+and prints the build and the phone's state.
 
-Create `C:\ProgramData\SMS_Bridge` and copy [install-settings.example.json](install-settings.example.json) there as `install-settings.json`. For JustRemotePhone with Principle, use these installation overrides with real values:
+Before the first install, once, signed in to the server as MSAdministrator by Remote Desktop:
 
-```json
-{
-  "BRIDGE_API_KEY": "<unique-bridge-api-key>",
-  "SmsSettings": {
-    "Provider": "JustRemotePhone",
-    "EnableDebugMode": false
-  },
-  "Principle": {
-    "Enabled": true,
-    "PracticeIds": ["<production-practice-id>"],
-    "API_KEY": "<principle-api-key>",
-    "WEBHOOK_SECRET": "<principle-webhook-signing-secret>"
-  }
-}
-```
+1. Install JustRemotePhone Call Centre, set it to start at sign-in, and pair the practice phone. A
+   phone pairs with one Call Centre, so unpair any other first.
+2. Sign MSAdministrator in automatically with Sysinternals
+   [Autologon](https://learn.microsoft.com/sysinternals/downloads/autologon), which stores the
+   password encrypted. Lock the screen when done; leave Remote Desktop by closing the window,
+   never by Sign out, which stops Call Centre and the bridge.
 
-Every override key must also be declared in `appsettings.json`; startup validates this. Restrict secrets to administrators and the bridge's runtime account. That account needs read/execute access to the installation and modify access to `C:\ProgramData\SMS_Bridge` for logs, caches, and message records.
+## Releasing
 
-`Hosting.AppBaseUrl` is used by the eTXT integration. It does not configure DNS, Caddy, or Principle's webhook URL.
-
-Start Call Centre, then start the bridge from its installation directory:
+A release is built where Call Centre is installed: the bridge compiles against JustRemotePhone's
+SDK (`RemotePhoneService.dll`), which releases leave out and the bridge loads from Call Centre's
+install at run time. From this repository, after merging to `master`:
 
 ```powershell
-Set-Location 'C:\Program Files\SMS_Bridge'
-.\SMS_Bridge.exe
+powershell -ExecutionPolicy Bypass -File Scripts\publish_release.ps1
 ```
 
-In another terminal, verify `curl.exe -H "X-API-Key: <BRIDGE_API_KEY>" http://localhost:5170/smsgateway/gateway-status` returns the build identity; without the header it returns 401. Check `C:\ProgramData\SMS_Bridge\od_logs` for startup failures and phone connection errors.
-
-## DNS, networking, and HTTPS
-
-1. Point the DNS A record for `office.massey-smiles.co.nz` at the office public IP. If an AAAA record exists, IPv6 must also reach Caddy.
-2. Forward inbound TCP 80 and 443 on the router to the Caddy host and allow them through Windows Firewall. Keep these routes available for certificate validation and renewal. Caddy also needs outbound HTTPS and DNS resolution.
-3. Keep port 5170 off the public Internet. By default the bridge listens on `http://localhost:5170` (`Hosting.ListenUrl`), so only processes on the same machine can reach it. Reception's SMS warning (below) also needs it on the server's LAN address: set `Hosting.ListenUrl` in `install-settings.json` to both, separated by `;`, e.g. `http://localhost:5170;http://<server LAN address>:5170`, and allow inbound TCP 5170 in the server's firewall from reception (`192.168.192.125`) only. Keep Caddy's administration port 2019 private.
-4. Place `caddy.exe` in `C:\caddy`. For a new installation, save this example as `C:\caddy\Caddyfile`. For an existing site, merge the route into its existing site block, preserving other applications and settings.
-
-```caddyfile
-office.massey-smiles.co.nz {
-    handle /smsgateway/* {
-        reverse_proxy 127.0.0.1:5170
-    }
-
-    handle {
-        respond "Not found" 404
-    }
-}
-```
-
-`handle` preserves the `/smsgateway` prefix required by the bridge; `handle_path` would strip it. If Caddy runs on another machine, use the bridge's internal address instead of loopback, set `Hosting.ListenUrl` in `install-settings.json` to that address (e.g. `http://192.168.192.125:5170`), and firewall port 5170 to the Caddy host only. See Caddy's [reverse proxy reference](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy).
-
-Caddy's [automatic HTTPS](https://caddyserver.com/docs/automatic-https) obtains and renews certificates for the public hostname and redirects HTTP to HTTPS. SMS_Bridge does not load a certificate. Caddy needs persistent, writable certificate storage under its runtime account. Inspect the active data directory on the host and preserve it during upgrades; a foreground run under your login can use different storage from the service.
-
-## Automatic startup
-
-Validate Caddy's configuration:
-
-```powershell
-C:\caddy\caddy.exe validate --config C:\caddy\Caddyfile --adapter caddyfile
-```
-
-For a new Caddy installation, run in elevated PowerShell, following Caddy's [Windows service instructions](https://caddyserver.com/docs/running#windows-service):
-
-```powershell
-sc.exe create caddy start= auto binPath= "C:\caddy\caddy.exe run --config C:\caddy\Caddyfile --adapter caddyfile"
-sc.exe failure caddy reset= 86400 actions= restart/5000/restart/10000/restart/30000
-sc.exe start caddy
-```
-
-Inspect an existing service with `sc.exe qc caddy` instead of creating another. Its account needs read/execute access to Caddy and its configuration, and write access to its data directory. After configuration edits, validate and apply them with `C:\caddy\caddy.exe reload --config C:\caddy\Caddyfile --adapter caddyfile`.
-
-SMS_Bridge supports Windows service hosting, but its startup validation opens `appsettings.json` relative to the process working directory. A bare `sc.exe create` installation does not set that directory and must not be assumed to work. For a console installation using Call Centre's interactive session, configure Windows Task Scheduler:
-
-- Account: the user running Call Centre; select **Run only when user is logged on**.
-- Trigger: at that user's logon. Arrange for Call Centre to start in that session too.
-- Program: `C:\Program Files\SMS_Bridge\SMS_Bridge.exe`.
-- Start in: `C:\Program Files\SMS_Bridge`.
-- Settings: restart on failure, disable the execution time limit, and prevent overlapping instances.
-
-This arrangement requires user logon after reboot and an active logged-in session. The JustRemotePhone SDK drives the desktop Call Centre, so on the server give the bridge a dedicated Windows account, pair the phone with Call Centre in that account, start Call Centre at its logon, and sign it in automatically after a reboot. Sysinternals [Autologon](https://learn.microsoft.com/sysinternals/downloads/autologon) stores the password encrypted; the `Winlogon` registry values store it in plain text. A signed-in desktop is open to anyone at the server's keyboard, so lock it after logon: the session and Call Centre keep running while locked. Unattended service operation before logon must address the working directory and verify JustRemotePhone connectivity from the service account/session; the repository does not supply a complete installer for that arrangement. Inspect any existing `SMS_Bridge_Service` and scheduled tasks before adding startup entries. Run only one bridge instance on port 5170.
+It builds a fresh clone of `master` self-contained for win-x64 and publishes it as a GitHub
+release named after the commit. Then run the install command on the server.
 
 ## SMS warning on reception
 
@@ -119,10 +57,10 @@ The box appears on the first failed check. Once dismissed, it reappears at most 
 
 `phone-status` returns `{"up": bool, "detail": "Call Centre: <state>, phone: <state>"}`, read live from the phone SDK on each request. `up` means Call Centre is connected and can see the phone.
 
-The release includes the script as `Scripts\check-sms.ps1`. Copy it to reception as `C:\ProgramData\SMS_Bridge\check-sms.ps1`. Then, signed in on reception as the user who will see the box, run this in PowerShell (no elevation needed), with the server's LAN address, `BRIDGE_API_KEY` and Corrin's number in place of the `<...>` values:
+The release includes the script as `Scripts\check-sms.ps1`. Copy it to reception as `C:\ProgramData\SMS_Bridge\check-sms.ps1`. Then, signed in on reception as the user who will see the box, run this in PowerShell (no elevation needed), with `BRIDGE_API_KEY` from the server's `install-settings.json` and Corrin's number in place of the `<...>` values:
 
 ```powershell
-$action = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument '--headless powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\ProgramData\SMS_Bridge\check-sms.ps1" -Url "http://<server LAN address>:5170/smsgateway/phone-status" -ApiKey "<BRIDGE_API_KEY>" -CorrinPhone "<number>"'
+$action = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument '--headless powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "C:\ProgramData\SMS_Bridge\check-sms.ps1" -Url "http://192.168.192.30:5170/smsgateway/phone-status" -ApiKey "<BRIDGE_API_KEY>" -CorrinPhone "<number>"'
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes 5)
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0
@@ -135,24 +73,22 @@ Register-ScheduledTask -TaskName 'SMS warning' -Action $action -Trigger $trigger
 
 Set Principle's webhook URL to `https://office.massey-smiles.co.nz/smsgateway/webhooks/principle`, enable `message.created` events, and use the same signing secret as `Principle.WEBHOOK_SECRET`. The webhook validates `X-Principle-Signature` and `X-Principle-Timestamp`; it does not require the general gateway's `X-API-Key` header.
 
-1. Verify the local gateway-status endpoint as above. With the same header, `http://localhost:5170/smsgateway/phone-status` should return `"up": true`, and so should `http://<server LAN address>:5170/smsgateway/phone-status` from reception. From any other LAN machine, port 5170 on the server should refuse or time out.
+1. The install prints `gateway-status` and the phone's state; after pairing, `http://localhost:5170/smsgateway/phone-status` with the `X-API-Key` header returns `"up": true`, and so does `http://192.168.192.30:5170/smsgateway/phone-status` from reception. From any other LAN machine, port 5170 on the server should refuse or time out.
 2. From outside the office, request `https://office.massey-smiles.co.nz/smsgateway/gateway-status` with `X-API-Key` set to `BRIDGE_API_KEY`. Expect HTTP 200 and the build identity, with a trusted certificate. Without that header, expect 401.
 3. Send an SMS from Principle to a controlled test patient/phone, then reply. Verify both directions and the `PrincipleOutboundSmsQueued` and `PrincipleInboundSmsCreated` log events.
-4. Reboot and verify startup, including user logon for the interactive task setup. Confirm the phone reconnects and both Caddy and the bridge recover.
+4. Restart the server without signing in. Confirm MSAdministrator signs in automatically, Call Centre reconnects to the phone, and the bridge answers.
 5. SMS warning, watched from reception: with everything working, no box appears within 5 minutes. Stop the bridge on the server: the box appears within 5 minutes. Dismiss it: no box reappears for an hour. Start the bridge again, wait for one good check, then turn the phone's Wi-Fi off: the box appears within 5 minutes, without waiting out the hour. Turn Wi-Fi back on and check `phone-status` shows `"up": true` again.
 
 Opening the webhook in a browser sends GET; the endpoint requires POST. Test it with a signed Principle event. Debug mode redirects recipients in the general `/send-sms` endpoint, but Principle webhooks queue messages directly: do not rely on debug mode to redirect Principle test messages.
 
-## Troubleshooting and upgrades
+## Troubleshooting
 
 | Symptom | Check |
 | --- | --- |
-| HTTPS fails or certificate is untrusted | DNS, forwarding, firewall, Caddy status, certificate issuance errors, and data-directory permissions. |
-| Caddy returns 502 | Bridge process, local port 5170, startup logs, and configured upstream address. A successful TLS handshake with 502 points to a proxy/upstream problem. |
-| Local gateway check fails | Installation settings, working directory, DLLs, runtime, permissions, and port conflicts. |
+| HTTPS fails or certificate is untrusted | DNS, the router's port forwards, and Caddy on the server (the admin app's install). |
+| Caddy returns 502 | The bridge: is MSAdministrator signed in, is the "SMS bridge" task running, and `C:\ProgramData\SMS_Bridge\od_logs`. |
+| The bridge won't start | `od_logs`; "Install JustRemotePhone Call Centre" means its SDK is missing from `C:\Program Files (x86)\JustPhone\CallCenter\SDK\bin`. |
 | Webhook returns 401 or invalid-signature 400 | Matching signing secret and Principle's signature/timestamp headers. |
-| Gateway works but SMS fails | Call Centre, phone pairing, connection state, and the bridge's account/session. |
-
-Before upgrades, back up installation settings, application data, the active Caddyfile, and Caddy's certificate data. Stop the bridge, replace the published release, restart, and repeat acceptance checks. Preserve settings and message records. If the release fails, restore the previous published binaries while retaining data. Validate and reload Caddy if its configuration changes.
+| Gateway works but SMS fails | Call Centre, phone pairing, and the phone's connection (`phone-status`). |
 
 [Scripts/collect-evidence.ps1](Scripts/collect-evidence.ps1) includes Caddy process/configuration discovery and bridge diagnostics. Adjust its historical log-date filters for a new incident. Its output can include patient information.
