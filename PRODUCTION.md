@@ -7,9 +7,10 @@ Principle -> HTTPS office.massey-smiles.co.nz:443 -> Caddy (on OPENDENTAL)
 
 The bridge runs on OPENDENTAL in MSAdministrator's session, beside Call Centre: the JustRemotePhone
 SDK drives Call Centre's desktop, so both need a signed-in session. MSAdministrator signs in
-automatically after a restart. Caddy and its configuration belong to the admin app
-([dental_practice_admin](https://github.com/corrin/dental_practice_admin), `deploy/Caddyfile`),
-whose install script sets them up.
+automatically after a restart. Caddy belongs to the admin app
+([dental_practice_admin](https://github.com/corrin/dental_practice_admin)), whose install script
+sets it up and must run first; the bridge's install adds its own site to it,
+`C:\ProgramData\Caddy\sites\sms-bridge.caddy`.
 
 ## Install and upgrade
 
@@ -19,7 +20,7 @@ In an elevated PowerShell on the server, as MSAdministrator:
 Invoke-WebRequest https://raw.githubusercontent.com/corrin/SMS_Bridge/master/Scripts/install_bridge.ps1 -OutFile $env:TEMP\install_bridge.ps1; Set-ExecutionPolicy Bypass -Scope Process -Force; & $env:TEMP\install_bridge.ps1
 ```
 
-It installs the latest GitHub release into `C:\Program Files\SMS_Bridge`, registers the "SMS
+It installs the latest GitHub release into `C:\Program Files\SMS_Bridge`, serves `office.massey-smiles.co.nz` through Caddy, registers the "SMS
 bridge" task that starts it at MSAdministrator's sign-in and restarts it if it stops, and opens
 port 5170 to reception only. On the first install it asks for Principle's API key and webhook
 signing secret, generates `BRIDGE_API_KEY`, and writes `C:\ProgramData\SMS_Bridge\install-settings.json`
@@ -85,7 +86,7 @@ Opening the webhook in a browser sends GET; the endpoint requires POST. Test it 
 
 | Symptom | Check |
 | --- | --- |
-| HTTPS fails or certificate is untrusted | DNS, the router's port forwards, and Caddy on the server (the admin app's install). |
+| HTTPS fails or certificate is untrusted | DNS, the router's port forwards, `C:\ProgramData\Caddy\sites\sms-bridge.caddy`, and Caddy on the server (the admin app's install). |
 | Caddy returns 502 | The bridge: is MSAdministrator signed in, is the "SMS bridge" task running, and `C:\ProgramData\SMS_Bridge\od_logs`. |
 | The bridge won't start | `od_logs`; "Install JustRemotePhone Call Centre" means its SDK is missing from `C:\Program Files (x86)\JustPhone\CallCenter\SDK\bin`. |
 | Webhook returns 401 or invalid-signature 400 | Matching signing secret and Principle's signature/timestamp headers. |
