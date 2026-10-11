@@ -46,13 +46,12 @@
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
   </ItemGroup>
 
+  <!-- JustRemotePhone's SDK: built against, never shipped. At run time Program.cs loads it from
+       Call Centre's own install, so releases don't redistribute it. -->
   <ItemGroup>
-    <Reference Include="Newtonsoft.Json">
-      <HintPath>C:\Program Files (x86)\Open Dental\Newtonsoft.Json.dll</HintPath>
-    </Reference>
     <Reference Include="RemotePhoneService">
       <HintPath>C:\Program Files (x86)\JustPhone\CallCenter\SDK\bin\RemotePhoneService.dll</HintPath>
-      <Private>True</Private>
+      <Private>False</Private>
     </Reference>
   </ItemGroup>
 

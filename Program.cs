@@ -19,6 +19,17 @@ using System.Text.Json.Serialization;
 // On QUIT: Log all received messages in the dictionary
 // And reload that dictionary on dictionary on startup
 
+// JustRemotePhone's SDK isn't shipped with the bridge (see the csproj); Call Centre installs it.
+const string JustRemotePhoneSdk = @"C:\Program Files (x86)\JustPhone\CallCenter\SDK\bin";
+System.Runtime.Loader.AssemblyLoadContext.Default.Resolving += (context, name) =>
+{
+    if (name.Name != "RemotePhoneService") return null;
+    var path = Path.Combine(JustRemotePhoneSdk, "RemotePhoneService.dll");
+    if (!File.Exists(path))
+        throw new FileNotFoundException($"Install JustRemotePhone Call Centre: {path} is missing.");
+    return context.LoadFromAssemblyPath(path);
+};
+
 var builder = WebApplication.CreateSlimBuilder(args);
 
 builder.Services.ConfigureHttpJsonOptions(opts =>

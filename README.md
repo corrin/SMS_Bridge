@@ -13,7 +13,7 @@ A lightweight SMS bridge application that integrates with multiple SMS providers
 
 ## Production installation
 
-Follow [PRODUCTION.md](PRODUCTION.md) for prerequisites, installation, Caddy configuration, HTTPS certificates, startup, and verification.
+Follow [PRODUCTION.md](PRODUCTION.md) for installing, upgrading, releasing, and verification.
 
 Production requires **SMS_Bridge, JustRemotePhone Call Centre with a connected phone, and Caddy**. Caddy serves `https://office.massey-smiles.co.nz` and forwards requests to the bridge's HTTP listener on port 5170. Caddy handles certificates outside the .NET application.
 
