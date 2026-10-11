@@ -11,6 +11,9 @@ $settings = "$data\install-settings.json"
 $user = "$env:COMPUTERNAME\MSAdministrator"
 $sdk = 'C:\Program Files (x86)\JustPhone\CallCenter\SDK\bin\RemotePhoneService.dll'
 if (-not (Test-Path $sdk)) { throw "Install JustRemotePhone Call Centre first ($sdk is missing)." }
+# Principle reaches the bridge through the admin app's Caddy, which serves the sites in this folder.
+$sites = 'C:\ProgramData\Caddy\sites'
+if (-not (Test-Path $sites)) { throw "Install the admin app first (dental_practice_admin, scripts\install_server.ps1): its Caddy serves the bridge's address." }
 
 # Settings: written once, kept on every upgrade.
 New-Item -ItemType Directory -Force $data | Out-Null
@@ -45,6 +48,37 @@ $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive
 $options = New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0 -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 Register-ScheduledTask -TaskName 'SMS bridge' -Action $action -Trigger $trigger -Principal $principal -Settings $options -Force | Out-Null
 if (-not (Get-NetFirewallRule -DisplayName 'SMS bridge from reception' -ErrorAction SilentlyContinue)) { New-NetFirewallRule -DisplayName 'SMS bridge from reception' -Direction Inbound -Protocol TCP -LocalPort 5170 -RemoteAddress 192.168.192.125 -Action Allow -Profile Any | Out-Null }
+
+# HTTPS for office.massey-smiles.co.nz, the address Principle's webhook is registered against.
+$site = @'
+office.massey-smiles.co.nz {
+	encode zstd gzip
+	log {
+		output file C:/ProgramData/Caddy/logs/office-access.log {
+			roll_size 10mb
+			roll_keep 30
+		}
+		format json
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+	reverse_proxy 127.0.0.1:5170 {
+		header_up X-Real-IP {remote_host}
+	}
+}
+'@
+$sitePath = "$sites\sms-bridge.caddy"
+if (-not (Test-Path $sitePath) -or (Get-Content $sitePath -Raw).Trim() -ne $site.Trim()) {
+    Set-Content $sitePath $site -Encoding ASCII
+    # A site Caddy can't load would stop the admin app's HTTPS at Caddy's next start.
+    # Caddy logs to stderr, which Windows PowerShell 5.1 turns into an error under 'Stop'.
+    & { $ErrorActionPreference = 'Continue'; caddy validate --config C:\ProgramData\Caddy\Caddyfile --adapter caddyfile --envfile C:\ProgramData\Caddy\caddy.env 2>&1 | Out-Null }
+    if ($LASTEXITCODE) { Remove-Item $sitePath; throw 'Caddy refused the bridge site; nothing changed in Caddy.' }
+    Restart-Service caddy
+}
 
 # An interactive task runs only while its user is signed in.
 if (-not (Get-Process explorer -IncludeUserName | Where-Object UserName -eq $user)) {
