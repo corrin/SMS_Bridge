@@ -37,6 +37,8 @@ Before the first install, once, signed in to the server as MSAdministrator by Re
    password encrypted. Lock the screen when done; leave Remote Desktop by closing the window,
    never by Sign out, which stops Call Centre and the bridge.
 
+On the bridge's first start, Call Centre asks on the console whether to grant SMSBridge access. The window can be hidden (Call Centre is off the taskbar), and until someone ticks "remember answer" and clicks Grant, `phone-status` stays at `Call Centre: Connecting`. The grant is stored as `ServiceClients` in MSAdministrator's Call Centre `user.config`, encrypted per machine, so it cannot be copied from another PC.
+
 ## Releasing
 
 A release is built where Call Centre is installed: the bridge compiles against JustRemotePhone's
@@ -74,9 +76,7 @@ Register-ScheduledTask -TaskName 'SMS warning' -Action $action -Trigger $trigger
 
 Set Principle's webhook URL to `https://office.massey-smiles.co.nz/smsgateway/webhooks/principle`, enable `message.created` events, and use the same signing secret as `Principle.WEBHOOK_SECRET`. The webhook validates `X-Principle-Signature` and `X-Principle-Timestamp`; it does not require the general gateway's `X-API-Key` header.
 
-Principle's built-in SMS must be off. While it is on, Principle sends each outbound message itself (the message shows `practicePhoneNumber: "TNZ"` and turns `sent` within seconds), so with the webhook enabled every patient gets the text twice, and replies to the TNZ number never reach the bridge. With it off, outbound messages show `"Via API"` and stay `pending`.
-
-On the first connection, Call Centre asks on the console whether to grant SMSBridge access. The window can be hidden (Call Centre is off the taskbar), and until someone ticks "remember answer" and clicks Grant, `phone-status` stays at `Call Centre: Connecting`. The grant is stored as `ServiceClients` in MSAdministrator's Call Centre `user.config`, encrypted per machine, so it cannot be copied from another PC.
+Principle's built-in SMS must be off. While it is on, Principle sends each outbound message itself (the message shows `practicePhoneNumber: "TNZ"` and turns `sent` within seconds), so with the webhook enabled every patient gets the text twice, and replies to the TNZ number go straight into Principle, bypassing the bridge. With it off, outbound messages show `"Via API"` and stay `pending`.
 
 1. The install prints `gateway-status` and the phone's state; after pairing, `http://localhost:5170/smsgateway/phone-status` with the `X-API-Key` header returns `"up": true`, and so does `http://192.168.192.30:5170/smsgateway/phone-status` from reception. From any other LAN machine, port 5170 on the server should refuse or time out.
 2. From outside the office, request `https://office.massey-smiles.co.nz/smsgateway/gateway-status` with `X-API-Key` set to `BRIDGE_API_KEY`. Expect HTTP 200 and the build identity, with a trusted certificate. Without that header, expect 401.
@@ -94,7 +94,7 @@ Opening the webhook in a browser sends GET; the endpoint requires POST. Test it 
 | Caddy returns 502 | The bridge: is MSAdministrator signed in, is the "SMS bridge" task running, and `C:\ProgramData\SMS_Bridge\od_logs`. |
 | The bridge won't start | `od_logs`; "Install JustRemotePhone Call Centre" means its SDK is missing from `C:\Program Files (x86)\JustPhone\CallCenter\SDK\bin`. |
 | Webhook returns 401 or invalid-signature 400 | Matching signing secret and Principle's signature/timestamp headers. |
-| `phone-status` stuck at `Call Centre: Connecting` | Call Centre's access prompt for SMSBridge is waiting on the console (see Principle setup). |
+| `phone-status` stuck at `Call Centre: Connecting` | Call Centre's access prompt for SMSBridge is waiting on the console (see Install and upgrade). |
 | Patients get each text twice | Principle's built-in SMS is still on. |
 | Gateway works but SMS fails | Call Centre, phone pairing, and the phone's connection (`phone-status`). |
 
