@@ -53,15 +53,6 @@ else
 }
 Console.WriteLine($"Build: {buildVersion}");
 
-if (Environment.UserInteractive == false) // Checks if running as a service
-{
-    builder.Host.UseWindowsService();
-}
-else
-{
-    Console.WriteLine("Running as a console application...");
-}
-
 Console.WriteLine("About to start the main try/catch...");
 
 // Define configuredProviderType at a higher scope so it's available in the catch block
@@ -122,16 +113,19 @@ try
     });
 
     builder.Services.AddSingleton(fileConfiguration);
+    builder.Services.AddSingleton<BridgeHealth>();
     builder.Services.AddSingleton<PrincipleOutboundSmsStore>();
     builder.Services.AddSingleton<PrincipleApiClient>(services =>
     {
-        var httpClient = new HttpClient();
+        // Under BridgeHealth.StuckAfter, so an unanswered call fails and logs instead of
+        // flagging the bridge as stuck.
+        var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
         return new PrincipleApiClient(httpClient, configuration, fileConfiguration);
     });
     builder.Services.AddSingleton<PrincipleWebhookService>();
     builder.Services.AddSingleton<PrincipleInboundSmsWriter>();
     builder.Services.AddSingleton<SmsReceivedHandler>(services =>
-        new SmsReceivedHandler(configuredProviderType, services.GetService<PrincipleInboundSmsWriter>()));
+        new SmsReceivedHandler(configuredProviderType, services.GetRequiredService<BridgeHealth>(), services.GetService<PrincipleInboundSmsWriter>()));
 
         // Initialize the appropriate SMS provider based on configuration
         builder.Services.AddSingleton<ISmsProvider>(services =>
@@ -370,8 +364,8 @@ try
 
     if (configuredProviderType == SmsProviderType.JustRemotePhone)
     {
-        smsGatewayApi.MapGet("/phone-status", (ISmsProvider smsProvider) =>
-            Results.Ok(((JustRemotePhoneSmsProvider)smsProvider).GetPhoneStatus()));
+        smsGatewayApi.MapGet("/phone-status", (ISmsProvider smsProvider, BridgeHealth health) =>
+            Results.Ok(health.WithPhone(((JustRemotePhoneSmsProvider)smsProvider).GetPhoneStatus())));
     }
     else
     {

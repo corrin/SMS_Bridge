@@ -9,7 +9,7 @@ A lightweight SMS bridge application that integrates with multiple SMS providers
   - Diafaan (stub implementation)
 - Queue-based SMS sending with clear logging and error handling.
 - Fail-fast configuration for reliable operation.
-- Designed to run as a Windows service or a standalone console application.
+- Runs in the signed-in session beside Call Centre: windowless in Release builds, with a console in Debug.
 
 ## Production installation
 

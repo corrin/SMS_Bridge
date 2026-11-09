@@ -25,14 +25,33 @@ namespace SMS_Bridge.Services
             $"{Environment.MachineName}_received_sms.json"
         );
 
-        public SmsReceivedHandler(SmsProviderType provider, PrincipleInboundSmsWriter? principleInboundSmsWriter = null) 
+        private readonly BridgeHealth _health;
+
+        public SmsReceivedHandler(SmsProviderType provider, BridgeHealth health, PrincipleInboundSmsWriter? principleInboundSmsWriter = null)
         {
-            _SMSprovider = provider; 
+            _SMSprovider = provider;
+            _health = health;
             _principleInboundSmsWriter = principleInboundSmsWriter;
             LoadReceivedMessagesFromDisk();
         }
 
         public void HandleSmsReceived(string number, string contactLabel, string text, string providerMessageIdString)
+        {
+            // Ends when the Principle write finishes, so a hang anywhere on the inbound path shows.
+            var inbound = _health.Track($"inbound SMS from {number}");
+            try
+            {
+                var receivedSms = RecordSmsReceived(number, contactLabel, text, providerMessageIdString);
+                _ = WritePrincipleInboundSmsAsync(receivedSms, inbound);
+            }
+            catch
+            {
+                inbound.Dispose();
+                throw;
+            }
+        }
+
+        private ReceiveSmsRequest RecordSmsReceived(string number, string contactLabel, string text, string providerMessageIdString)
         {
             var smsBridgeId = new SmsBridgeId(Guid.NewGuid());
             var providerMessageId = new ProviderMessageId(Guid.Parse(providerMessageIdString));
@@ -55,21 +74,24 @@ namespace SMS_Bridge.Services
             _receivedMessages.TryAdd(smsBridgeId, (receivedSms, DateTime.Now));
 
             SaveReceivedMessagesToDisk();
-            _ = WritePrincipleInboundSmsAsync(receivedSms);
+            return receivedSms;
         }
 
-        private async Task WritePrincipleInboundSmsAsync(ReceiveSmsRequest receivedSms)
+        private async Task WritePrincipleInboundSmsAsync(ReceiveSmsRequest receivedSms, IDisposable inbound)
         {
-            if (_principleInboundSmsWriter == null)
+            using (inbound)
             {
-                return;
-            }
-            else
-            {
-                // Happy case handled below
-            }
+                if (_principleInboundSmsWriter == null)
+                {
+                    return;
+                }
+                else
+                {
+                    // Happy case handled below
+                }
 
-            await _principleInboundSmsWriter.TryWriteInboundReplyAsync(_SMSprovider, receivedSms);
+                await _principleInboundSmsWriter.TryWriteInboundReplyAsync(_SMSprovider, receivedSms);
+            }
         }
 
         private void SaveReceivedMessagesToDisk()
