@@ -22,7 +22,7 @@ public class BridgeHealthTests
         var status = _health.WithPhone(PhoneUp);
 
         Assert.False(status.Up);
-        Assert.Equal($"{PhoneUp.Detail}, bridge: inbound SMS from +6421000000 stuck 125s", status.Detail);
+        Assert.Equal($"{PhoneUp.Detail}, bridge: inbound SMS from +6421000000 stuck {(int)BridgeHealth.StuckAfter.TotalSeconds + 5}s", status.Detail);
     }
 
     [Fact]

@@ -7,7 +7,9 @@ namespace SMS_Bridge.Services
     // which a quiet bridge (no webhooks overnight, an empty queue) never looks like.
     public class BridgeHealth
     {
-        public static readonly TimeSpan StuckAfter = TimeSpan.FromMinutes(2);
+        // Above the slowest healthy inbound: a patient search and a message create, each up to
+        // HttpClient's default 100 s timeout. Reception checks every 5 minutes anyway.
+        public static readonly TimeSpan StuckAfter = TimeSpan.FromMinutes(5);
 
         private readonly ConcurrentDictionary<long, (string What, DateTime StartedAt)> _inFlight = new();
         private readonly Func<DateTime> _utcNow;

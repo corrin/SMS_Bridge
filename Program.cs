@@ -117,9 +117,7 @@ try
     builder.Services.AddSingleton<PrincipleOutboundSmsStore>();
     builder.Services.AddSingleton<PrincipleApiClient>(services =>
     {
-        // Under BridgeHealth.StuckAfter, so an unanswered call fails and logs instead of
-        // flagging the bridge as stuck.
-        var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        var httpClient = new HttpClient();
         return new PrincipleApiClient(httpClient, configuration, fileConfiguration);
     });
     builder.Services.AddSingleton<PrincipleWebhookService>();
