@@ -7,27 +7,22 @@ namespace SMS_Bridge.Services
 {
     public class PrincipleOutboundSmsStore
     {
-        private static readonly SemaphoreSlim SaveLock = new(1, 1);
-        private static readonly string DirectoryPath = Path.Combine(AppData.BasePath, "msg_guids");
-        private static readonly string FilePath = Path.Combine(
-            DirectoryPath,
-            $"{Environment.MachineName}_principle_sms_map.json"
-        );
+        private readonly SemaphoreSlim SaveLock = new(1, 1);
+        private readonly string DirectoryPath;
+        private readonly string FilePath;
         private readonly int _cacheTtlDays;
 
-        public PrincipleOutboundSmsStore(IConfiguration configuration)
+        public PrincipleOutboundSmsStore(IConfiguration configuration, string? directoryPath = null)
         {
             var options = configuration.GetSection("Principle").Get<PrincipleOptions>()!;
             _cacheTtlDays = options.CacheTtlDays;
+            DirectoryPath = directoryPath ?? Path.Combine(AppData.BasePath, "msg_guids");
+            FilePath = Path.Combine(DirectoryPath, $"{Environment.MachineName}_principle_sms_map.json");
         }
 
-        public async Task<bool> ExistsAsync(string principleMessageId)
-        {
-            var records = await LoadAsync();
-            return records.Any(record => record.PrincipleMessageId == principleMessageId);
-        }
-
-        public async Task AddAsync(PrincipleOutboundSmsMapRecord record)
+        // Adds the record unless one with the same Principle message id exists. The check and the
+        // write share one lock, so concurrent webhook retries of a message claim it exactly once.
+        public async Task<bool> AddAsync(PrincipleOutboundSmsMapRecord record)
         {
             await SaveLock.WaitAsync();
             try
@@ -35,7 +30,7 @@ namespace SMS_Bridge.Services
                 var records = await LoadUnsafeAsync();
                 if (records.Any(existing => existing.PrincipleMessageId == record.PrincipleMessageId))
                 {
-                    return;
+                    return false;
                 }
                 else
                 {
@@ -50,6 +45,7 @@ namespace SMS_Bridge.Services
                     AppJsonSerializerContext.Default.ListPrincipleOutboundSmsMapRecord
                 );
                 await File.WriteAllTextAsync(FilePath, json);
+                return true;
             }
             finally
             {
@@ -84,7 +80,7 @@ namespace SMS_Bridge.Services
             return match;
         }
 
-        private static async Task<List<PrincipleOutboundSmsMapRecord>> LoadAsync()
+        private async Task<List<PrincipleOutboundSmsMapRecord>> LoadAsync()
         {
             await SaveLock.WaitAsync();
             try
@@ -97,7 +93,7 @@ namespace SMS_Bridge.Services
             }
         }
 
-        private static async Task<List<PrincipleOutboundSmsMapRecord>> LoadUnsafeAsync()
+        private async Task<List<PrincipleOutboundSmsMapRecord>> LoadUnsafeAsync()
         {
             if (!File.Exists(FilePath))
             {

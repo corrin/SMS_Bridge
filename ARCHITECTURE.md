@@ -7,7 +7,6 @@
 - Web API endpoints for SMS operations
 - Middleware for API key validation
 - Debug/Production mode handling
-- Running as either Windows Service or Console application
 - Port configuration (default: 5170)
 
 ### 2. Services
@@ -85,7 +84,7 @@
 
 Production uses Caddy to terminate HTTPS for `office.massey-smiles.co.nz` and proxy requests to SMS_Bridge on HTTP port 5170. Caddy manages certificate issuance and renewal separately from the application. Development uses an ngrok HTTPS tunnel to the same application port. See [PRODUCTION.md](PRODUCTION.md) for prerequisites, configuration, startup constraints, and verification.
 
-- Can run as Windows Service or Console application
-- Startup is configured separately through Windows services or Task Scheduler; see the production guide for working-directory and phone-session requirements.
+- Release builds are a windowless WinExe; Debug builds keep a console. It can't run as a Windows service, because the JustRemotePhone SDK needs the signed-in desktop session.
+- Task Scheduler starts it at sign-in; see the production guide for working-directory and phone-session requirements.
 - The application listens on `Hosting.ListenUrl`, by default `http://localhost:5170` (loopback only), so only a proxy on the same machine can reach it.
 - Installation and data-directory permissions must allow access by the runtime account.

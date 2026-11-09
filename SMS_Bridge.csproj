@@ -7,6 +7,11 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <PublishAot>False</PublishAot>
     <OutputType>Exe</OutputType>
+    <!-- Production runs windowless: a console window that someone clicks into QuickEdit "Select"
+         blocks every Console.WriteLine, and with it every thread that logs. Without a console
+         .NET routes Console output to a null stream. It can't be a Windows service instead:
+         the JustRemotePhone SDK needs MSAdministrator's desktop session (PRODUCTION.md). -->
+    <OutputType Condition="'$(Configuration)' == 'Release'">WinExe</OutputType>
     <PlatformTarget>x64</PlatformTarget>
     <PublishTrimmed>False</PublishTrimmed>
     <GenerateDocumentationFile>False</GenerateDocumentationFile>
@@ -40,10 +45,6 @@
   <!-- Ships with the release so reception's scheduled task can run it from the install directory. -->
   <ItemGroup>
     <None Update="Scripts\check-sms.ps1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="9.0.0" />
   </ItemGroup>
 
   <!-- JustRemotePhone's SDK: built against, never shipped. At run time Program.cs loads it from

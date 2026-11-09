@@ -8,6 +8,9 @@ namespace SMS_Bridge.Services
     public static class Logger
     {
         private static readonly string LOG_PATH = Path.Combine(AppData.BasePath, "od_logs");
+        // Concurrent File.AppendAllText calls on one file throw IOException (file in use),
+        // which would send the line to the console only.
+        private static readonly object FileLock = new();
 
 
         public static void Initialize()
@@ -52,9 +55,12 @@ namespace SMS_Bridge.Services
                 string jsonLog = JsonSerializer.Serialize(logEntry, AppJsonSerializerContext.Default.LogEntry);
                 string logFilePath = Path.Combine(LOG_PATH, $"SMS_Log_{DateTime.Now:yyyyMMdd}.log");
 
-                File.AppendAllText(logFilePath, jsonLog + Environment.NewLine);
+                lock (FileLock)
+                {
+                    File.AppendAllText(logFilePath, jsonLog + Environment.NewLine);
+                }
 
-                // Simplified console log
+                // Release builds are WinExe, so this goes to a null stream; see SMS_Bridge.csproj
                 Console.WriteLine($"{DateTime.Now:HH:mm:ss} | {level} | {providerString} | {eventType} | {details}");
 
             }

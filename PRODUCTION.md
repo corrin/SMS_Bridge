@@ -12,6 +12,8 @@ automatically after a restart. Caddy belongs to the admin app
 sets it up and must run first; the bridge's install adds its own site to it,
 `C:\ProgramData\Caddy\sites\sms-bridge.caddy`.
 
+The bridge has no window: a console window clicked into QuickEdit "Select" mode blocks every thread that logs, and closing it kills the bridge. It can't be a Windows service, because a service can't reach Call Centre's desktop. Its output is in `C:\ProgramData\SMS_Bridge\od_logs`. To stop it: `Stop-ScheduledTask 'SMS bridge'; Stop-Process -Name SMS_Bridge`. To start it: `Start-ScheduledTask 'SMS bridge'`.
+
 ## Install and upgrade
 
 In an elevated PowerShell on the server, as MSAdministrator:
@@ -58,7 +60,7 @@ Principle doesn't report texts that fail to go out, and the bridge can't report 
 
 The box appears on the first failed check. Once dismissed, it reappears at most once an hour while texts still aren't going out, counted from the dismissal. The time of the last dismissal is kept in `%LOCALAPPDATA%\SMS_Bridge\warned-at` on reception, and a good check deletes it, so the next outage warns at once. If that file can't be read or written, the box shows on every check. The task never opens a second box while one is still open.
 
-`phone-status` returns `{"up": bool, "detail": "Call Centre: <state>, phone: <state>"}`, read live from the phone SDK on each request. `up` means Call Centre is connected and can see the phone.
+`phone-status` returns `{"up": bool, "detail": "Call Centre: <state>, phone: <state>"}`, read live from the phone SDK on each request. `up` means Call Centre is connected and can see the phone, and no webhook, inbound text or send has been running for more than 5 minutes. A stuck one makes it `false` and adds `, bridge: <operation> stuck <n>s` to `detail`, so a hung bridge warns reception even while the phone is fine.
 
 The release includes the script as `Scripts\check-sms.ps1`. Copy it to reception as `C:\ProgramData\SMS_Bridge\check-sms.ps1`. Then, signed in on reception as the user who will see the box, run this in PowerShell (no elevation needed), with `BRIDGE_API_KEY` from the server's `install-settings.json` and Corrin's number in place of the `<...>` values:
 
@@ -95,6 +97,7 @@ Opening the webhook in a browser sends GET; the endpoint requires POST. Test it 
 | The bridge won't start | `od_logs`; "Install JustRemotePhone Call Centre" means its SDK is missing from `C:\Program Files (x86)\JustPhone\CallCenter\SDK\bin`. |
 | Webhook returns 401 or invalid-signature 400 | Matching signing secret and Principle's signature/timestamp headers. |
 | `phone-status` stuck at `Call Centre: Connecting` | Call Centre's access prompt for SMSBridge is waiting on the console (see Install and upgrade). |
+| `phone-status` detail ends `bridge: … stuck <n>s` | The bridge is hung on that operation. Note the detail and the last lines of `od_logs`, then restart it: `Stop-ScheduledTask 'SMS bridge'; Stop-Process -Name SMS_Bridge; Start-ScheduledTask 'SMS bridge'`. |
 | Patients get each text twice | Principle's built-in SMS is still on. |
 | Gateway works but SMS fails | Call Centre, phone pairing, and the phone's connection (`phone-status`). |
 

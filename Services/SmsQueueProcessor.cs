@@ -13,9 +13,12 @@ namespace SMS_Bridge.Services
         private readonly Timer _processTimer;
         private const int PROCESS_INTERVAL_MS = 5000;
 
-        public SmsQueueService(ISmsProvider provider, IConfiguration configuration)
+        private readonly BridgeHealth _health;
+
+        public SmsQueueService(ISmsProvider provider, IConfiguration configuration, BridgeHealth health)
         {
             _provider = provider ?? throw new ArgumentNullException(nameof(provider));
+            _health = health;
             _processTimer = new Timer(ProcessQueue, null, PROCESS_INTERVAL_MS, PROCESS_INTERVAL_MS);
 
             _providerType = provider switch
@@ -34,7 +37,10 @@ namespace SMS_Bridge.Services
                 details: "SMS Queue initialized");
         }
 
-        public SmsBridgeId QueueSms(SendSmsRequest request)
+        public SmsBridgeId QueueSms(SendSmsRequest request) =>
+            QueueSms(request, new SmsBridgeId(Guid.NewGuid()));
+
+        public SmsBridgeId QueueSms(SendSmsRequest request, SmsBridgeId smsBridgeId)
         {
             if (request == null)
             {
@@ -45,7 +51,6 @@ namespace SMS_Bridge.Services
                 // Happy case handled below
             }
 
-            var smsBridgeId = new SmsBridgeId(Guid.NewGuid());
             _smsQueue.Enqueue((request, smsBridgeId));
 
             Logger.LogInfo(
@@ -68,6 +73,7 @@ namespace SMS_Bridge.Services
             }
 
             var (request, smsBridgeId) = item;
+            using var _ = _health.Track($"SMS send {smsBridgeId}");
             try
             {
                 var (result, returnedSmsBridgeId) = await _provider.SendSms(request, smsBridgeId);

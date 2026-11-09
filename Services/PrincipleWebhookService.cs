@@ -15,21 +15,26 @@ namespace SMS_Bridge.Services
         private readonly PrincipleApiClient _principleApi;
         private readonly PrincipleOutboundSmsStore _store;
         private readonly SmsQueueService _smsQueue;
+        private readonly BridgeHealth _health;
 
         public PrincipleWebhookService(
             Configuration fileConfiguration,
             PrincipleApiClient principleApi,
             PrincipleOutboundSmsStore store,
-            SmsQueueService smsQueue)
+            SmsQueueService smsQueue,
+            BridgeHealth health)
         {
             _fileConfiguration = fileConfiguration;
             _principleApi = principleApi;
             _store = store;
             _smsQueue = smsQueue;
+            _health = health;
         }
 
         public async Task<IResult> HandleAsync(HttpRequest request)
         {
+            using var _ = _health.Track("Principle webhook");
+
             if (!_principleApi.Enabled)
             {
                 Logger.LogWarning(
@@ -173,7 +178,19 @@ namespace SMS_Bridge.Services
             if (string.Equals(data.Direction, "outbound", StringComparison.OrdinalIgnoreCase)
                 && string.Equals(data.Status, "pending", StringComparison.OrdinalIgnoreCase))
             {
-                if (await _store.ExistsAsync(data.Id))
+                // Principle retries a slow delivery in concurrent bursts; claiming the message
+                // id before queueing is what keeps the patient from getting the text twice.
+                var smsBridgeId = new SmsBridgeId(Guid.NewGuid());
+                var claimed = await _store.AddAsync(new PrincipleOutboundSmsMapRecord(
+                    PrincipleMessageId: data.Id,
+                    SmsBridgeId: smsBridgeId.Value.ToString(),
+                    PatientPhoneNumber: data.PatientPhoneNumber,
+                    PatientId: data.PatientId,
+                    PracticeId: data.PracticeId,
+                    Body: data.Body,
+                    ReceivedAt: DateTime.Now
+                ));
+                if (!claimed)
                 {
                     Logger.LogInfo(
                         provider: SmsProviderType.JustRemotePhone,
@@ -187,22 +204,12 @@ namespace SMS_Bridge.Services
                     // Happy case handled below
                 }
 
-                var smsBridgeId = _smsQueue.QueueSms(new SendSmsRequest(
+                _smsQueue.QueueSms(new SendSmsRequest(
                     PhoneNumber: data.PatientPhoneNumber,
                     Message: data.Body,
                     CallbackUrl: null,
                     SenderId: data.PracticePhoneNumber
-                ));
-
-                await _store.AddAsync(new PrincipleOutboundSmsMapRecord(
-                    PrincipleMessageId: data.Id,
-                    SmsBridgeId: smsBridgeId.Value.ToString(),
-                    PatientPhoneNumber: data.PatientPhoneNumber,
-                    PatientId: data.PatientId,
-                    PracticeId: data.PracticeId,
-                    Body: data.Body,
-                    ReceivedAt: DateTime.Now
-                ));
+                ), smsBridgeId);
 
                 Logger.LogInfo(
                     provider: SmsProviderType.JustRemotePhone,
