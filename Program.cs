@@ -135,7 +135,7 @@ try
             // We already parsed the provider type earlier, use it here
             ISmsProvider provider = configuredProviderType switch
             {
-                SmsProviderType.JustRemotePhone => new JustRemotePhoneSmsProvider(smsReceivedHandler),
+                SmsProviderType.JustRemotePhone => new JustRemotePhoneSmsProvider(smsReceivedHandler, services.GetRequiredService<TimeProvider>()),
                 SmsProviderType.Diafaan => new DiafaanSmsProvider(httpClient, configuration, smsReceivedHandler),
                 SmsProviderType.ETxt => CreateETxtProvider(configuration, fileConfiguration, httpClient, smsReceivedHandler),
                 _ => throw new InvalidOperationException($"Unsupported SMS provider: {smsProvider}") // This case should not be reached if parsing is successful
@@ -152,12 +152,26 @@ try
         return provider;
     });
 
+    builder.Services.AddSingleton(TimeProvider.System);
     builder.Services.AddSingleton<SmsQueueService>();
+    builder.Services.AddSingleton(services => CallCentreWatchdog.For(
+        (JustRemotePhoneSmsProvider)services.GetRequiredService<ISmsProvider>(),
+        services.GetRequiredService<SmsQueueService>(),
+        services.GetRequiredService<TimeProvider>()));
     builder.Services.AddApiKeyAuthentication(apiKey, configuredProviderType);
 
     var app = builder.Build();
 
     app.Services.GetRequiredService<ISmsProvider>(); // Force instantiation at startup
+    app.Services.GetRequiredService<SmsQueueService>(); // Resumes texts stored before a restart without waiting for a new one
+    if (configuredProviderType == SmsProviderType.JustRemotePhone)
+    {
+        app.Services.GetRequiredService<CallCentreWatchdog>(); // Starts watching Call Centre's connections to the phone
+    }
+    else
+    {
+        // Other providers have no Call Centre to watch
+    }
 
     var smsGatewayApi = app.MapGroup("/smsgateway");
 
@@ -362,13 +376,18 @@ try
 
     if (configuredProviderType == SmsProviderType.JustRemotePhone)
     {
-        smsGatewayApi.MapGet("/phone-status", (ISmsProvider smsProvider, BridgeHealth health) =>
-            Results.Ok(health.WithPhone(((JustRemotePhoneSmsProvider)smsProvider).GetPhoneStatus())));
+        smsGatewayApi.MapGet("/phone-status", (ISmsProvider smsProvider, BridgeHealth health, SmsQueueService queue, CallCentreWatchdog watchdog) =>
+            Results.Ok(watchdog.WithRestarts(queue.WithSends(health.WithPhone(((JustRemotePhoneSmsProvider)smsProvider).GetPhoneStatus())))));
     }
     else
     {
         // Other providers have no phone link to report
     }
+
+    // Principle texts the bridge gave up on, until a later text to the same number goes out.
+    // dental_practice_admin shows them to staff.
+    smsGatewayApi.MapGet("/failed-sms", async (PrincipleOutboundSmsStore store) =>
+        Results.Ok(new FailedSmsResponse(await store.FailedAsync())));
 
     smsGatewayApi.MapGet("/debug-status", () =>
     {

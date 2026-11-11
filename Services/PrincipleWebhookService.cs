@@ -181,15 +181,18 @@ namespace SMS_Bridge.Services
                 // Principle retries a slow delivery in concurrent bursts; claiming the message
                 // id before queueing is what keeps the patient from getting the text twice.
                 var smsBridgeId = new SmsBridgeId(Guid.NewGuid());
-                var claimed = await _store.AddAsync(new PrincipleOutboundSmsMapRecord(
+                var record = new PrincipleOutboundSmsMapRecord(
                     PrincipleMessageId: data.Id,
                     SmsBridgeId: smsBridgeId.Value.ToString(),
                     PatientPhoneNumber: data.PatientPhoneNumber,
                     PatientId: data.PatientId,
                     PracticeId: data.PracticeId,
                     Body: data.Body,
-                    ReceivedAt: DateTime.Now
-                ));
+                    ReceivedAt: DateTimeOffset.Now,
+                    PracticePhoneNumber: data.PracticePhoneNumber,
+                    Delivery: new OutboundDelivery(OutboundSmsStatus.Pending)
+                );
+                var claimed = await _store.AddAsync(record);
                 if (!claimed)
                 {
                     Logger.LogInfo(
@@ -204,12 +207,7 @@ namespace SMS_Bridge.Services
                     // Happy case handled below
                 }
 
-                _smsQueue.QueueSms(new SendSmsRequest(
-                    PhoneNumber: data.PatientPhoneNumber,
-                    Message: data.Body,
-                    CallbackUrl: null,
-                    SenderId: data.PracticePhoneNumber
-                ), smsBridgeId);
+                _smsQueue.QueuePrinciple(record);
 
                 Logger.LogInfo(
                     provider: SmsProviderType.JustRemotePhone,

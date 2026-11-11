@@ -24,6 +24,8 @@ namespace SMS_Bridge
     [JsonSerializable(typeof(PrincipleSmsMessageCreate))]
     [JsonSerializable(typeof(PrinciplePatientSearchResponse))]
     [JsonSerializable(typeof(List<PrincipleOutboundSmsMapRecord>))]
+    [JsonSerializable(typeof(PrincipleSmsMessageStatusUpdate))]
+    [JsonSerializable(typeof(FailedSmsResponse))]
 
     internal partial class AppJsonSerializerContext : JsonSerializerContext
     {

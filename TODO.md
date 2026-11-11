@@ -5,14 +5,10 @@
    - Automate service setup with a simple installer script.
    - Include pre-checks for configuration file and directory permissions.
 
-2. **Monitoring and Alerting**
-   - Add email notifications for persistent SMS failures.
-   - Implement health-check endpoints for monitoring the system status.
-
-3. **Configuration Validation**
+2. **Configuration Validation**
    - Validate all required keys during startup and log missing optional keys for visibility.
 
-4. **Provider Implementations**
+3. **Provider Implementations**
    - Complete eTXT and Diafaan provider implementations.
 
 ## Medium Priority

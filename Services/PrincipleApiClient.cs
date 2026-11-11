@@ -65,6 +65,22 @@ namespace SMS_Bridge.Services
             response.EnsureSuccessStatusCode();
         }
 
+        // status is "sent", "delivered" or "failed" (updateSMSMessageStatus).
+        public async Task UpdateSmsMessageStatusAsync(string patientId, string smsMessageId, string status)
+        {
+            var url = $"{_options.ApiBaseUrl}/v1/patients/{Uri.EscapeDataString(patientId)}/sms-messages/{Uri.EscapeDataString(smsMessageId)}/status";
+            using var request = new HttpRequestMessage(HttpMethod.Patch, url)
+            {
+                Content = new StringContent(
+                    JsonSerializer.Serialize(new PrincipleSmsMessageStatusUpdate(status), AppJsonSerializerContext.Default.PrincipleSmsMessageStatusUpdate),
+                    Encoding.UTF8,
+                    "application/json")
+            };
+            AddHeaders(request);
+            using var response = await _httpClient.SendAsync(request);
+            response.EnsureSuccessStatusCode();
+        }
+
         private void AddHeaders(HttpRequestMessage request)
         {
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));

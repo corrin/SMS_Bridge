@@ -54,13 +54,23 @@ powershell -ExecutionPolicy Bypass -File Scripts\publish_release.ps1
 It builds a fresh clone of `master` self-contained for win-x64 and publishes it as a GitHub
 release named after the commit. Then run the install command on the server.
 
+## Texts that can't go out
+
+The bridge holds a text while the phone can't send, and sends it once the phone is back: `phone-status` then shows `phone: Unknown`. A failed send is retried after 1, 5, then every 15 minutes. A text the phone never confirms within 10.5 minutes is resent once only, because it may have gone out. Held texts go out only between 08:00 and 20:00 New Zealand time, so a backlog that clears overnight waits for the morning; a text that arrives outside those hours goes straight out if the phone can send it. Principle texts are kept in `C:\ProgramData\SMS_Bridge\msg_guids`, so a restart resumes them.
+
+The phone can also stop confirming while looking healthy: Call Centre stays `Connected`, the phone shows `Idle`, and every text is accepted but never sent (it doesn't appear in Call Centre's SMS list, and the phone shows it "Failed"). The phone normally confirms a text within seconds, so once one has waited 30 seconds the bridge holds the rest and `phone-status` reports `up: false` with `texts: phone accepted texts but confirmed none since <time>`. Every 15 minutes it sends one held text as a test; the first one confirmed releases the rest.
+
+The usual cause is Call Centre half-reconnecting after a network blip. It keeps two connections to the phone app: port 12331 for calls and the call log, and 12321 for texts, send results and phone-state events. Sometimes only 12331 comes back, and calls keep working while texts go nowhere. The bridge checks both connections every 30 seconds. When 12321 has been missing for 2 minutes while 12331 is up, or texts are going unconfirmed, it restarts Call Centre (`CallCentreRestart` in the log). That rebuilds both connections and doesn't drop a call in progress. It restarts at most once every 15 minutes, and at most twice until a restart is seen to work (a text confirmed, or both connections back); after that it logs `CallCentreRestartGaveUp` and `phone-status` says `restarted Call Centre 2 times without fixing it; restart the phone`. A phone that's off or off Wi-Fi has neither connection, so it is never restarted for.
+
+After 4 sending hours (`QueueSettings:GiveUpAfterSendingHours`) the bridge gives up and logs `SendGaveUp`. The bridge marks each Principle message `sent` or `failed` in Principle, and `GET /smsgateway/failed-sms` (with `X-API-Key`) lists the given-up texts until a later text to the same number goes out. dental_practice_admin shows that list to staff, who phone the patient.
+
 ## SMS warning on reception
 
 Principle doesn't report texts that fail to go out, and the bridge can't report its own crash. So a scheduled task on reception, separate from the bridge, runs `check-sms.ps1` every 5 minutes against the bridge on the server. If `phone-status` answers anything but `"up": true`, it shows reception a warning box. That covers the phone being off or disconnected, Call Centre being closed, the bridge being stopped, crashed or hung, and the server being unreachable. The box asks staff to restart the phone, then ring Corrin.
 
 The box appears on the first failed check. Once dismissed, it reappears at most once an hour while texts still aren't going out, counted from the dismissal. The time of the last dismissal is kept in `%LOCALAPPDATA%\SMS_Bridge\warned-at` on reception, and a good check deletes it, so the next outage warns at once. If that file can't be read or written, the box shows on every check. The task never opens a second box while one is still open.
 
-`phone-status` returns `{"up": bool, "detail": "Call Centre: <state>, phone: <state>"}`, read live from the phone SDK on each request. `up` means Call Centre is connected and can see the phone, and no webhook, inbound text or send has been running for more than 5 minutes. A stuck one makes it `false` and adds `, bridge: <operation> stuck <n>s` to `detail`, so a hung bridge warns reception even while the phone is fine.
+`phone-status` returns `{"up": bool, "detail": "Call Centre: <state>, phone: <state>"}`, read live from the phone SDK on each request. `up` means Call Centre is connected and can see the phone, the phone is confirming the texts it's given, and no webhook, inbound text or send has been running for more than 5 minutes. A phone `Unknown` for under 3 minutes still counts as up, because it flips to Unknown for moments at a time; texts are held during those moments anyway. A stuck one makes it `false` and adds `, bridge: <operation> stuck <n>s` to `detail`, so a hung bridge warns reception even while the phone is fine.
 
 The release includes the script as `Scripts\check-sms.ps1`. Copy it to reception as `C:\ProgramData\SMS_Bridge\check-sms.ps1`. Then, signed in on reception as the user who will see the box, run this in PowerShell (no elevation needed), with `BRIDGE_API_KEY` from the server's `install-settings.json` and Corrin's number in place of the `<...>` values:
 
@@ -100,5 +110,7 @@ Opening the webhook in a browser sends GET; the endpoint requires POST. Test it 
 | `phone-status` detail ends `bridge: … stuck <n>s` | The bridge is hung on that operation. Note the detail and the last lines of `od_logs`, then restart it: `Stop-ScheduledTask 'SMS bridge'; Stop-Process -Name SMS_Bridge; Start-ScheduledTask 'SMS bridge'`. |
 | Patients get each text twice | Principle's built-in SMS is still on. |
 | Gateway works but SMS fails | Call Centre, phone pairing, and the phone's connection (`phone-status`). |
+| `phone-status` detail ends `texts: phone accepted texts but confirmed none since …`; log shows `SendingHeld` and `SendingTest` | Call Centre takes texts but doesn't send them. The bridge restarts Call Centre itself; if the detail says it restarted twice without fixing it, restart the JustRemotePhone app on the phone, or the phone, then re-pair it with Call Centre. Held texts go out once a test text is confirmed. |
+| `phone-status` detail shows `phone: Unknown`; log shows `SendingHeld` | Call Centre can't reach the phone, so texts are held. Restart the phone or its Wi-Fi; held texts go out within seconds of `SendingResumed`. |
 
 [Scripts/collect-evidence.ps1](Scripts/collect-evidence.ps1) includes Caddy process/configuration discovery and bridge diagnostics. Adjust its historical log-date filters for a new incident. Its output can include patient information.

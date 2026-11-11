@@ -370,6 +370,10 @@ namespace SMS_Bridge.SmsProviders
             return _smsReceivedHandler.DeleteReceivedMessage(smsBridgeId);
         }
 
+        public string? SendBlockedReason() => null;
+        public bool ReportsSendOutcome => false;
+        public event Action<SmsBridgeId, SmsStatus> SendOutcome { add { } remove { } }
+
         public Task<IEnumerable<MessageStatusRecord>> GetRecentMessageStatuses()
         {
             var now = DateTime.Now;

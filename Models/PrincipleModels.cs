@@ -43,6 +43,11 @@ namespace SMS_Bridge.Models
         [property: JsonPropertyName("practiceId")] string? PracticeId
     );
 
+    public record PrincipleSmsMessageStatusUpdate(
+        [property: JsonPropertyName("status")] string Status
+    );
+
+    // Delivery is null on records stored before the bridge tracked sending; those are never resent.
     public record PrincipleOutboundSmsMapRecord(
         string PrincipleMessageId,
         string SmsBridgeId,
@@ -50,6 +55,8 @@ namespace SMS_Bridge.Models
         string? PatientId,
         string PracticeId,
         string Body,
-        DateTime ReceivedAt
+        DateTimeOffset ReceivedAt,
+        string? PracticePhoneNumber = null,
+        OutboundDelivery? Delivery = null
     );
 }
