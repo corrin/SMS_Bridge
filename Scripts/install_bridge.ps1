@@ -43,9 +43,13 @@ if (Test-Path $staged) { Remove-Item -Recurse -Force $staged }
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [IO.Compression.ZipFile]::ExtractToDirectory($zip, $staged)
 if (-not (Test-Path "$staged\SMS_Bridge.exe")) { throw "The release has no SMS_Bridge.exe; the running bridge is untouched." }
+# Disabled while files are swapped, or its restart-on-failure starts the bridge mid-copy;
+# Register-ScheduledTask below re-enables it.
+Disable-ScheduledTask -TaskName 'SMS bridge' -ErrorAction SilentlyContinue | Out-Null
 Stop-ScheduledTask -TaskName 'SMS bridge' -ErrorAction SilentlyContinue
 Get-Process SMS_Bridge -ErrorAction SilentlyContinue | ForEach-Object { $_ | Stop-Process -Force; $_.WaitForExit() }
-# Emptied rather than deleted: an Explorer window or a shell's working directory holds the folder itself open.
+# Emptied rather than deleted: Call Centre, started by the bridge, keeps this folder as its working
+# directory, so the folder itself stays open after the bridge stops.
 New-Item -ItemType Directory -Force $root | Out-Null
 Get-ChildItem $root -Force | Remove-Item -Recurse -Force
 Copy-Item "$staged\*" $root -Recurse -Force
