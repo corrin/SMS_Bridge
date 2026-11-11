@@ -36,15 +36,10 @@ namespace SMS_Bridge.Services
                 {
                     // Happy case handled below
                 }
-                var cutoff = DateTime.Now.AddDays(-_cacheTtlDays);
-                records.RemoveAll(r => r.ReceivedAt < cutoff);
+                var cutoff = DateTimeOffset.Now.AddDays(-_cacheTtlDays);
+                records.RemoveAll(r => r.ReceivedAt < cutoff && !MustKeep(r, records));
                 records.Add(record);
-                Directory.CreateDirectory(DirectoryPath);
-                var json = JsonSerializer.Serialize(
-                    records,
-                    AppJsonSerializerContext.Default.ListPrincipleOutboundSmsMapRecord
-                );
-                await File.WriteAllTextAsync(FilePath, json);
+                await SaveUnsafeAsync(records);
                 return true;
             }
             finally
@@ -53,11 +48,65 @@ namespace SMS_Bridge.Services
             }
         }
 
+        // Replaces the stored record with the same Principle message id.
+        public async Task UpdateAsync(PrincipleOutboundSmsMapRecord record)
+        {
+            await SaveLock.WaitAsync();
+            try
+            {
+                var records = await LoadUnsafeAsync();
+                var index = records.FindIndex(r => r.PrincipleMessageId == record.PrincipleMessageId);
+                if (index < 0)
+                {
+                    throw new InvalidOperationException($"Principle message {record.PrincipleMessageId} is not in the store");
+                }
+                else
+                {
+                    // Happy case handled below
+                }
+                records[index] = record;
+                await SaveUnsafeAsync(records);
+            }
+            finally
+            {
+                SaveLock.Release();
+            }
+        }
+
+        // Records still to be sent or awaiting the phone's result, and finished ones Principle hasn't been told about.
+        public async Task<List<PrincipleOutboundSmsMapRecord>> UnfinishedAsync()
+        {
+            var records = await LoadAsync();
+            return records
+                .Where(r => r.Delivery != null
+                         && (r.Delivery.Status is OutboundSmsStatus.Pending or OutboundSmsStatus.AwaitingResult
+                             || !r.Delivery.PrincipleReported))
+                .ToList();
+        }
+
+        // Texts given up on with no later text to the same number sent after the failure.
+        public async Task<List<FailedSms>> FailedAsync()
+        {
+            var records = await LoadAsync();
+            return records
+                .Where(r => r.Delivery?.Status == OutboundSmsStatus.Failed && !ClearedByLaterSend(r, records))
+                .Select(r => new FailedSms(
+                    PrincipleMessageId: r.PrincipleMessageId,
+                    PatientId: r.PatientId,
+                    PatientPhoneNumber: r.PatientPhoneNumber,
+                    ReceivedAt: r.ReceivedAt.UtcDateTime,
+                    FailedAt: r.Delivery!.FinishedAt!.Value.UtcDateTime,
+                    Attempts: r.Delivery.Attempts,
+                    Reason: r.Delivery.LastError ?? "unknown"))
+                .OrderBy(f => f.FailedAt)
+                .ToList();
+        }
+
         public async Task<PrincipleOutboundSmsMapRecord?> FindByPhoneNumberAsync(string phoneNumber)
         {
             var records = await LoadAsync();
             var normalised = NormalisePhoneNumber(phoneNumber);
-            var cutoff = DateTime.Now.AddDays(-_cacheTtlDays);
+            var cutoff = DateTimeOffset.Now.AddDays(-_cacheTtlDays);
             var matching = records
                 .Where(record => NormalisePhoneNumber(record.PatientPhoneNumber) == normalised
                               && record.ReceivedAt > cutoff)
@@ -78,6 +127,23 @@ namespace SMS_Bridge.Services
                 // Happy case handled below
             }
             return match;
+        }
+
+        // Unfinished work, and failures nobody has cleared, outlive the TTL.
+        private static bool MustKeep(PrincipleOutboundSmsMapRecord record, List<PrincipleOutboundSmsMapRecord> records) =>
+            record.Delivery?.Status switch
+            {
+                OutboundSmsStatus.Pending or OutboundSmsStatus.AwaitingResult => true,
+                OutboundSmsStatus.Failed => !ClearedByLaterSend(record, records),
+                _ => record.Delivery?.PrincipleReported == false
+            };
+
+        private static bool ClearedByLaterSend(PrincipleOutboundSmsMapRecord failed, List<PrincipleOutboundSmsMapRecord> records)
+        {
+            var number = NormalisePhoneNumber(failed.PatientPhoneNumber);
+            return records.Any(r => r.Delivery?.Status == OutboundSmsStatus.Sent
+                                 && r.Delivery.FinishedAt > failed.Delivery!.FinishedAt
+                                 && NormalisePhoneNumber(r.PatientPhoneNumber) == number);
         }
 
         private async Task<List<PrincipleOutboundSmsMapRecord>> LoadAsync()
@@ -107,6 +173,16 @@ namespace SMS_Bridge.Services
             var json = await File.ReadAllTextAsync(FilePath);
             return JsonSerializer.Deserialize(json, AppJsonSerializerContext.Default.ListPrincipleOutboundSmsMapRecord)
                 ?? new List<PrincipleOutboundSmsMapRecord>();
+        }
+
+        private async Task SaveUnsafeAsync(List<PrincipleOutboundSmsMapRecord> records)
+        {
+            Directory.CreateDirectory(DirectoryPath);
+            var json = JsonSerializer.Serialize(
+                records,
+                AppJsonSerializerContext.Default.ListPrincipleOutboundSmsMapRecord
+            );
+            await File.WriteAllTextAsync(FilePath, json);
         }
 
         private static string NormalisePhoneNumber(string phoneNumber)

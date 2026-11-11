@@ -22,9 +22,16 @@
 - Validates critical configuration parameters
 
 #### SmsQueueProcessor (Services/SmsQueueProcessor.cs)
-- Manages the SMS sending queue
-- Handles message processing and retries
-- Ensures reliable message delivery
+- Holds texts while the phone can't send (`PhoneState` Unknown) and sends them when it can, one every 5 seconds
+- Holds texts while the phone isn't confirming sends (one unconfirmed after 30 seconds, or a timeout), sending one as a test every 15 minutes until one is confirmed; `phone-status` reports it
+
+#### CallCentreWatchdog (Services/CallCentreWatchdog.cs)
+- Restarts Call Centre when its texting connection to the phone (port 12321) is missing while the calls connection (12331) is up, or texts go unconfirmed
+- At most once per 15 minutes and twice until a text is confirmed; reported in `phone-status`
+- Retries a failed send after 1, 5, then every 15 minutes; resends a text the phone never confirmed once only, since it may have gone out
+- Sends held texts only 08:00–20:00 New Zealand time (`Services/SendWindow.cs`); a text that arrives outside those hours goes straight out
+- Gives up after `QueueSettings:GiveUpAfterSendingHours` of sending hours
+- Principle texts are kept in `PrincipleOutboundSmsStore`, so a restart resumes them; their outcome is set on the Principle message (`sent` or `failed`), and given-up ones are listed at `GET /smsgateway/failed-sms`
 
 ### 3. SMS Providers
 
@@ -67,6 +74,11 @@
 4. **GET /recent-status-values**
    - Gets recent message status updates
    - Currently supports JustRemotePhone provider only
+
+5. **GET /failed-sms**
+   - Principle texts the bridge gave up on, until a later text to the same number goes out
+   - `{"failed": [{principleMessageId, patientId, patientPhoneNumber, receivedAt, failedAt, attempts, reason}]}`, times in UTC
+   - dental_practice_admin shows them to staff
 
 ## Security Features
 - `X-API-Key` required on every route except provider webhooks, which use HMAC or a callback key

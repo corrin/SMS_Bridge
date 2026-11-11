@@ -20,12 +20,23 @@ namespace SMS_Bridge.SmsProviders
         // Connected application alone doesn't mean texts can go out.
         public static bool IsUp(ApplicationState applicationState, PhoneState phoneState) =>
             applicationState == ApplicationState.Connected && phoneState != PhoneState.Unknown;
+
+        // The phone flips Idle/Unknown about once a minute at times, and texts held in those gaps
+        // go out moments later, so phone-status reports it down only once Unknown has lasted.
+        public static readonly TimeSpan UnknownGrace = TimeSpan.FromMinutes(3);
+
+        public static bool ReportsUp(ApplicationState applicationState, PhoneState phoneState, TimeSpan unknownFor) =>
+            IsUp(applicationState, phoneState)
+            || (applicationState == ApplicationState.Connected && unknownFor <= UnknownGrace);
     }
 
     public class JustRemotePhoneSmsProvider : ISmsProvider
     {
         // Event that fires when a message times out waiting for delivery confirmation
         public event Action<SmsBridgeId, string[]> OnMessageTimeout = delegate { };
+
+        public event Action<SmsBridgeId, SmsStatus> SendOutcome = delegate { };
+        public bool ReportsSendOutcome => true;
 
         private static Application _app = new Application("SMS Bridge");
         private static bool _isConnected = false;
@@ -41,6 +52,9 @@ namespace SMS_Bridge.SmsProviders
         private const int CONNECTION_CHECK_INTERVAL_MS = 3600000; // Check connection every hour
 
         private readonly SmsReceivedHandler _smsReceivedHandler;
+        private readonly TimeProvider _clock;
+        // UTC ticks when the phone last became Unknown, 0 while it is known.
+        private long _unknownSinceTicks;
 
 
         private void RefreshConnection(object? state)
@@ -67,9 +81,11 @@ namespace SMS_Bridge.SmsProviders
         }
 
 
-        public JustRemotePhoneSmsProvider(SmsReceivedHandler smsReceivedHandler)
+        public JustRemotePhoneSmsProvider(SmsReceivedHandler smsReceivedHandler, TimeProvider clock)
         {
             _smsReceivedHandler = smsReceivedHandler;
+            _clock = clock;
+            if (_app.Phone.State == PhoneState.Unknown) MarkUnknown();
 
             _app.ApplicationStateChanged += OnApplicationStateChanged;
             _app.Phone.PhoneStateChanged += OnPhoneStateChanged;
@@ -110,6 +126,9 @@ namespace SMS_Bridge.SmsProviders
 
         private void OnPhoneStateChanged(PhoneState newState, PhoneState oldState)
         {
+            if (newState == PhoneState.Unknown) MarkUnknown();
+            else Interlocked.Exchange(ref _unknownSinceTicks, 0);
+
             // Idle, Ringing and OffHook change with every call; only Unknown matters to the link.
             if (newState == PhoneState.Unknown || oldState == PhoneState.Unknown)
             {
@@ -125,16 +144,49 @@ namespace SMS_Bridge.SmsProviders
             }
         }
 
+        // Kills Call Centre and starts it again through the SDK, which rebuilds both of its
+        // connections to the phone. Results of texts already handed to it can no longer arrive.
+        public void RestartCallCentre()
+        {
+            foreach (var process in System.Diagnostics.Process.GetProcessesByName("CallCenter"))
+            {
+                using (process)
+                {
+                    process.Kill();
+                    process.WaitForExit(10000);
+                }
+            }
+            _app.BeginConnect(true);
+        }
+
+        private void MarkUnknown() =>
+            Interlocked.CompareExchange(ref _unknownSinceTicks, _clock.GetUtcNow().UtcTicks, 0);
+
+        // Texts wait the moment the phone is Unknown, without phone-status's grace.
+        public string? SendBlockedReason()
+        {
+            var applicationState = _app.State;
+            var phoneState = _app.Phone.State;
+            return PhoneLink.IsUp(applicationState, phoneState) ? null : Detail(applicationState, phoneState);
+        }
+
         // Read live from the SDK on each request, so the answer can't go stale.
         public PhoneStatusResponse GetPhoneStatus()
         {
             var applicationState = _app.State;
             var phoneState = _app.Phone.State;
+            var since = Interlocked.Read(ref _unknownSinceTicks);
+            var unknownFor = phoneState == PhoneState.Unknown && since != 0
+                ? _clock.GetUtcNow() - new DateTimeOffset(since, TimeSpan.Zero)
+                : TimeSpan.Zero;
             return new PhoneStatusResponse(
-                Up: PhoneLink.IsUp(applicationState, phoneState),
-                Detail: $"Call Centre: {applicationState}, phone: {phoneState}"
+                Up: PhoneLink.ReportsUp(applicationState, phoneState, unknownFor),
+                Detail: Detail(applicationState, phoneState)
             );
         }
+
+        private static string Detail(ApplicationState applicationState, PhoneState phoneState) =>
+            $"Call Centre: {applicationState}, phone: {phoneState}";
 
         private async Task<bool> EnsureConnectedAsync()
         {
@@ -167,6 +219,9 @@ namespace SMS_Bridge.SmsProviders
 
         private void SetupMessageTimeout(SmsBridgeId smsBridgeId, string[] numbers)
         {
+            // A resend reuses the SmsBridgeId; the first send's timer would otherwise time the resend out early.
+            if (_messageTimers.TryRemove(smsBridgeId, out var earlier)) earlier.Dispose();
+
             var timer = new Timer(_ =>
             {
                 if (_messageTimers.TryRemove(smsBridgeId, out var timerToDispose))
@@ -204,6 +259,7 @@ namespace SMS_Bridge.SmsProviders
             );
             // Preserve original metadata while updating status
             _messageStatuses[smsBridgeId] = (existing.ProviderMessageID, SmsStatus.TimedOut, existing.SentAt, DateTime.Now);
+            SendOutcome(smsBridgeId, SmsStatus.TimedOut);
         }
 
 
@@ -230,10 +286,12 @@ namespace SMS_Bridge.SmsProviders
             var smsBridgeId = entry.Key;
                 var existing = entry.Value;
                 var now = DateTime.Now;
-                var status = results.FirstOrDefault() switch
+                var result = results.FirstOrDefault();
+                var status = result switch
                 {
                     SMSSentResult.Ok => SmsStatus.Delivered,
-                    SMSSentResult.ErrorGeneric => SmsStatus.Failed,
+                    SMSSentResult.ErrorGeneric or SMSSentResult.ErrorNoService or SMSSentResult.ErrorRadioOff
+                        or SMSSentResult.ErrorMaximumSMSPerMonth => SmsStatus.Failed,
                     _ => SmsStatus.Unknown
                 };
 
@@ -248,7 +306,7 @@ namespace SMS_Bridge.SmsProviders
                         eventType: "DeliveryStatus",
                         SMSBridgeID: smsBridgeId, // Pass SmsBridgeId
                         providerMessageID: providerMessageId, // Pass ProviderMessageId
-                        details: $"Number: {numbers[i]}, Status: {status}, Delivery Time: {deliveryInterval.TotalSeconds:F1} seconds"
+                        details: $"Number: {numbers[i]}, Status: {status} ({result}), Delivery Time: {deliveryInterval.TotalSeconds:F1} seconds"
                     );
                 }
 
@@ -262,6 +320,7 @@ namespace SMS_Bridge.SmsProviders
                     // Timer already removed
                 }
                 // We cannot add to _messageStatuses here as we don't have the SMSBridgeID
+                SendOutcome(smsBridgeId, status);
         }
         private void OnSMSReceived(string number, string contactLabel, string text)
         {

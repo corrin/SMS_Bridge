@@ -24,14 +24,17 @@ public class PrincipleWebhookDedupeTests : IDisposable
             ["Principle:Enabled"] = "true",
             ["Principle:API_KEY"] = "principle-key",
             ["Principle:WEBHOOK_SECRET"] = Secret,
+            ["QueueSettings:GiveUpAfterSendingHours"] = "4",
         }).Build();
         var fileConfig = new SMS_Bridge.Services.Configuration(config);
         var health = new BridgeHealth();
+        var principleApi = new PrincipleApiClient(new HttpClient(), config, fileConfig);
+        var store = new PrincipleOutboundSmsStore(config, _storeDir);
         _webhook = new PrincipleWebhookService(
             fileConfig,
-            new PrincipleApiClient(new HttpClient(), config, fileConfig),
-            new PrincipleOutboundSmsStore(config, _storeDir),
-            new SmsQueueService(new NoSendProvider(), config, health),
+            principleApi,
+            store,
+            new SmsQueueService(new NoSendProvider(), config, health, store, principleApi, TimeProvider.System),
             health);
     }
 
@@ -93,5 +96,8 @@ public class PrincipleWebhookDedupeTests : IDisposable
         public Task<IEnumerable<ReceiveSmsRequest>> GetReceivedMessages() => Task.FromResult(Enumerable.Empty<ReceiveSmsRequest>());
         public Task<DeleteMessageResponse> DeleteReceivedMessage(SmsBridgeId smsBridgeId) => throw new NotSupportedException();
         public Task<IEnumerable<MessageStatusRecord>> GetRecentMessageStatuses() => Task.FromResult(Enumerable.Empty<MessageStatusRecord>());
+        public string? SendBlockedReason() => null;
+        public bool ReportsSendOutcome => false;
+        public event Action<SmsBridgeId, SmsStatus> SendOutcome { add { } remove { } }
     }
 }

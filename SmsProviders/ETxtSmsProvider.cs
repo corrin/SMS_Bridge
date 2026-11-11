@@ -176,6 +176,10 @@ namespace SMS_Bridge.SmsProviders
             return _smsReceivedHandler.GetReceivedMessages();
         }
 
+        public string? SendBlockedReason() => null;
+        public bool ReportsSendOutcome => false;
+        public event Action<SmsBridgeId, SmsStatus> SendOutcome { add { } remove { } }
+
         public Task<IEnumerable<MessageStatusRecord>> GetRecentMessageStatuses()
         {
             // Not supported by eTXT API, but we could potentially track sent message statuses here if needed.

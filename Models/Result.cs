@@ -50,7 +50,8 @@ namespace SMS_Bridge.Models
         string[] AllowedTestNumbers
     );
 
-    // Up means texts can go out: Call Centre is connected and can see the phone.
+    // Up means texts can go out: Call Centre is connected and can see the phone (a phone Unknown for
+    // under PhoneLink.UnknownGrace still counts), and the phone is confirming the texts it's given.
     // Scripts/check-sms.ps1 on reception polls this and warns staff when it isn't true.
     public record PhoneStatusResponse(
         bool Up,
