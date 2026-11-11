@@ -34,12 +34,22 @@ $key = (Get-Content $settings -Raw | ConvertFrom-Json).BRIDGE_API_KEY
 
 # The release
 $release = Invoke-RestMethod ('https://api.github.com/repos/corrin/SMS_Bridge/releases/' + $(if ($Tag) { "tags/$Tag" } else { 'latest' }))
-Invoke-WebRequest $release.assets[0].browser_download_url -OutFile $env:TEMP\SMS_Bridge.zip
+# Downloaded and unpacked before the running bridge is stopped, so a bad download leaves it running.
+# ZipFile, not Expand-Archive: the Archive module doesn't load in a WinRM session.
+$zip = "$env:TEMP\SMS_Bridge.zip"
+$staged = "$env:TEMP\SMS_Bridge-release"
+Invoke-WebRequest $release.assets[0].browser_download_url -OutFile $zip
+if (Test-Path $staged) { Remove-Item -Recurse -Force $staged }
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[IO.Compression.ZipFile]::ExtractToDirectory($zip, $staged)
+if (-not (Test-Path "$staged\SMS_Bridge.exe")) { throw "The release has no SMS_Bridge.exe; the running bridge is untouched." }
 Stop-ScheduledTask -TaskName 'SMS bridge' -ErrorAction SilentlyContinue
 Get-Process SMS_Bridge -ErrorAction SilentlyContinue | ForEach-Object { $_ | Stop-Process -Force; $_.WaitForExit() }
-if (Test-Path $root) { Remove-Item -Recurse -Force $root }
-Expand-Archive $env:TEMP\SMS_Bridge.zip $root
-Remove-Item $env:TEMP\SMS_Bridge.zip
+# Emptied rather than deleted: an Explorer window or a shell's working directory holds the folder itself open.
+New-Item -ItemType Directory -Force $root | Out-Null
+Get-ChildItem $root -Force | Remove-Item -Recurse -Force
+Copy-Item "$staged\*" $root -Recurse -Force
+Remove-Item -Recurse -Force $staged, $zip
 
 # Starts at each sign-in, comes back if it stops, and admits reception's SMS warning check only.
 $action = New-ScheduledTaskAction -Execute "$root\SMS_Bridge.exe" -WorkingDirectory $root
