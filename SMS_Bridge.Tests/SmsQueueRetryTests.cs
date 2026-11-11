@@ -106,6 +106,7 @@ public class SmsQueueRetryTests : IDisposable
         Assert.Equal(OutboundSmsStatus.AwaitingResult, (await Delivery(record)).Status);
 
         await Outcome(queue, record, SmsStatus.Delivered);
+        await queue.ReportAsync();
 
         Assert.Equal($"/v1/patients/patient-1/sms-messages/{record.PrincipleMessageId}/status sent", Assert.Single(_principle.Patches));
         Assert.DoesNotContain(await _store.UnfinishedAsync(), r => r.PrincipleMessageId == record.PrincipleMessageId);
@@ -165,6 +166,7 @@ public class SmsQueueRetryTests : IDisposable
         Assert.Equal(2, _provider.Sends.Count);
 
         await Outcome(queue, record, SmsStatus.TimedOut);
+        await queue.ReportAsync();
         Assert.Equal(2, _provider.Sends.Count);
         Assert.Equal($"/v1/patients/patient-1/sms-messages/{record.PrincipleMessageId}/status failed", Assert.Single(_principle.Patches));
         var failed = Assert.Single(await _store.FailedAsync());
@@ -283,23 +285,96 @@ public class SmsQueueRetryTests : IDisposable
         Assert.Empty(await _store.FailedAsync());
     }
 
-    [Fact]
-    public async Task A_report_Principle_fails_to_take_is_retried_but_one_it_rejects_is_not()
+    [Theory]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    public async Task A_report_Principle_fails_to_take_is_retried_after_a_delay_but_one_it_rejects_is_not(HttpStatusCode failure)
     {
         _clock.Now = NzTime(2026, 11, 10, 10, 0);
         var record = await StoreText(_clock.Now, delivery: new OutboundDelivery(OutboundSmsStatus.Sent, FinishedAt: _clock.Now));
         var queue = NewQueue();
-
-        _principle.NextStatusCodes.Enqueue(HttpStatusCode.ServiceUnavailable);
         await queue.ProcessAsync();
+
+        _principle.NextStatusCodes.Enqueue(failure);
+        await queue.ReportAsync();
         Assert.False((await Delivery(record)).PrincipleReported);
 
+        _clock.Now += TimeSpan.FromSeconds(59);
+        await queue.ReportAsync();
+        Assert.Single(_principle.Patches);
+
+        _clock.Now += TimeSpan.FromSeconds(1);
         _principle.NextStatusCodes.Enqueue(HttpStatusCode.NotFound);
-        await queue.ProcessAsync();
+        await queue.ReportAsync();
         Assert.Empty(await _store.UnfinishedAsync());
 
-        await queue.ProcessAsync();
+        await queue.ReportAsync();
         Assert.Equal(2, _principle.Patches.Count);
+    }
+
+    [Fact]
+    public async Task A_slow_Principle_doesnt_hold_up_sending()
+    {
+        _clock.Now = NzTime(2026, 11, 10, 10, 0);
+        await StoreText(_clock.Now, delivery: new OutboundDelivery(OutboundSmsStatus.Sent, FinishedAt: _clock.Now));
+        var waiting = await StoreText(_clock.Now.AddSeconds(1));
+        var queue = NewQueue();
+        await queue.ProcessAsync();
+        _principle.Hang = new TaskCompletionSource();
+
+        var reporting = queue.ReportAsync();
+        _clock.Now += TimeSpan.FromSeconds(5);
+        await queue.ProcessAsync();
+
+        Assert.Contains(IdOf(waiting), _provider.Sends);
+        _principle.Hang.SetResult();
+        await reporting;
+    }
+
+    [Fact]
+    public async Task A_text_the_provider_refuses_fails_at_once()
+    {
+        _clock.Now = NzTime(2026, 11, 10, 10, 0);
+        var record = await StoreText(_clock.Now);
+        var queue = NewQueue();
+        queue.QueuePrinciple(record);
+        _provider.NextStatusCodes.Enqueue(400);
+
+        await queue.ProcessAsync();
+
+        var failed = Assert.Single(await _store.FailedAsync());
+        Assert.Equal("send failed with status 400", failed.Reason);
+        Assert.Single(_provider.Sends);
+    }
+
+    [Fact]
+    public async Task An_unreadable_store_doesnt_stop_other_texts_going_out()
+    {
+        Directory.CreateDirectory(_storeDir);
+        await File.WriteAllTextAsync(Path.Combine(_storeDir, $"{Environment.MachineName}_principle_sms_map.json"), "[{\"truncated");
+        _clock.Now = NzTime(2026, 11, 10, 10, 0);
+        var queue = NewQueue();
+
+        queue.QueueSms(new SendSmsRequest("+6421000009", "Hello"));
+        await queue.ProcessAsync();
+
+        Assert.Single(_provider.Sends);
+    }
+
+    [Fact]
+    public async Task With_nothing_left_to_send_the_phone_is_no_longer_reported_as_not_confirming()
+    {
+        var (queue, texts) = await QueueTexts(1);
+        await queue.ProcessAsync();
+        _clock.Now = NzTime(2026, 11, 10, 10, 11);
+        await Outcome(queue, texts[0], SmsStatus.TimedOut);
+        Assert.NotNull(queue.NotConfirming);
+
+        _clock.Now = NzTime(2026, 11, 10, 10, 22);
+        await Outcome(queue, texts[0], SmsStatus.TimedOut);
+
+        Assert.Null(queue.NotConfirming);
     }
 
     private async Task<(SmsQueueService Queue, PrincipleOutboundSmsMapRecord[] Texts)> QueueTexts(int count)
@@ -400,8 +475,11 @@ public class SmsQueueRetryTests : IDisposable
         await queue.ProcessAsync();
         Assert.NotNull(queue.NotConfirming);
 
-        await queue.CallCentreRestartedAsync();
+        var restarts = 0;
+        await queue.RestartCallCentreAsync(() => restarts++);
         await queue.ProcessAsync();
+
+        Assert.Equal(1, restarts);
 
         Assert.Null(queue.NotConfirming);
         Assert.Equal(1, (await Delivery(texts[0])).Timeouts);
@@ -467,6 +545,8 @@ public class SmsQueueRetryTests : IDisposable
     {
         public Queue<HttpStatusCode> NextStatusCodes { get; } = new();
         public List<string> Patches { get; } = new();
+        // When set, each request waits for it, as a Principle that doesn't answer.
+        public TaskCompletionSource? Hang { get; set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -475,6 +555,7 @@ public class SmsQueueRetryTests : IDisposable
             var body = await request.Content!.ReadAsStringAsync(cancellationToken);
             var status = System.Text.Json.JsonDocument.Parse(body).RootElement.GetProperty("status").GetString();
             Patches.Add($"{request.RequestUri!.AbsolutePath} {status}");
+            if (Hang != null) await Hang.Task;
             return new HttpResponseMessage(NextStatusCodes.Count > 0 ? NextStatusCodes.Dequeue() : HttpStatusCode.OK);
         }
     }

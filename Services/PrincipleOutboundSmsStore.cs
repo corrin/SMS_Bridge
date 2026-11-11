@@ -73,6 +73,40 @@ namespace SMS_Bridge.Services
             }
         }
 
+        // Replaces each stored record with the same Principle message id, in one write.
+        public async Task UpdateManyAsync(List<PrincipleOutboundSmsMapRecord> updated)
+        {
+            if (updated.Count == 0)
+                return;
+            else
+            {
+                // Happy case handled below
+            }
+
+            await SaveLock.WaitAsync();
+            try
+            {
+                var records = await LoadUnsafeAsync();
+                foreach (var record in updated)
+                {
+                    var index = records.FindIndex(r => r.PrincipleMessageId == record.PrincipleMessageId);
+                    if (index < 0)
+                    {
+                        throw new InvalidOperationException($"Principle message {record.PrincipleMessageId} is not in the store");
+                    }
+                    else
+                    {
+                        records[index] = record;
+                    }
+                }
+                await SaveUnsafeAsync(records);
+            }
+            finally
+            {
+                SaveLock.Release();
+            }
+        }
+
         // Records still to be sent or awaiting the phone's result, and finished ones Principle hasn't been told about.
         public async Task<List<PrincipleOutboundSmsMapRecord>> UnfinishedAsync()
         {
@@ -175,6 +209,8 @@ namespace SMS_Bridge.Services
                 ?? new List<PrincipleOutboundSmsMapRecord>();
         }
 
+        // Written beside the store and moved over it, so a crash mid-write leaves the previous
+        // version rather than a truncated file that would lose waiting texts and webhook dedupe.
         private async Task SaveUnsafeAsync(List<PrincipleOutboundSmsMapRecord> records)
         {
             Directory.CreateDirectory(DirectoryPath);
@@ -182,7 +218,9 @@ namespace SMS_Bridge.Services
                 records,
                 AppJsonSerializerContext.Default.ListPrincipleOutboundSmsMapRecord
             );
-            await File.WriteAllTextAsync(FilePath, json);
+            var temp = FilePath + ".tmp";
+            await File.WriteAllTextAsync(temp, json);
+            File.Move(temp, FilePath, overwrite: true);
         }
 
         private static string NormalisePhoneNumber(string phoneNumber)

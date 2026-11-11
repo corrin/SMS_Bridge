@@ -25,13 +25,14 @@
 - Holds texts while the phone can't send (`PhoneState` Unknown) and sends them when it can, one every 5 seconds
 - Holds texts while the phone isn't confirming sends (one unconfirmed after 30 seconds, or a timeout), sending one as a test every 15 minutes until one is confirmed; `phone-status` reports it
 
-#### CallCentreWatchdog (Services/CallCentreWatchdog.cs)
-- Restarts Call Centre when its texting connection to the phone (port 12321) is missing while the calls connection (12331) is up, or texts go unconfirmed
-- At most once per 15 minutes and twice until a text is confirmed; reported in `phone-status`
 - Retries a failed send after 1, 5, then every 15 minutes; resends a text the phone never confirmed once only, since it may have gone out
 - Sends held texts only 08:00–20:00 New Zealand time (`Services/SendWindow.cs`); a text that arrives outside those hours goes straight out
 - Gives up after `QueueSettings:GiveUpAfterSendingHours` of sending hours
 - Principle texts are kept in `PrincipleOutboundSmsStore`, so a restart resumes them; their outcome is set on the Principle message (`sent` or `failed`), and given-up ones are listed at `GET /smsgateway/failed-sms`
+
+#### CallCentreWatchdog (Services/CallCentreWatchdog.cs)
+- Restarts Call Centre when its texting connection to the phone (port 12321) is missing while the calls connection (12331) is up, or texts go unconfirmed
+- At most once per 15 minutes, and twice until a restart is seen to work; reported in `phone-status`
 
 ### 3. SMS Providers
 

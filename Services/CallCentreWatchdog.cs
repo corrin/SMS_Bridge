@@ -11,9 +11,10 @@ namespace SMS_Bridge.Services
     // call in progress.
     //
     // Restarts when that half-connection lasts HalfConnectedFor, or when the queue sees sends go
-    // unconfirmed. At most once per RestartEvery, and at most MaxRestarts until a text is confirmed,
-    // so a phone that is truly broken gets a person instead of a restart loop. A phone that's off
-    // or off Wi-Fi has neither connection, which isn't a half-connection.
+    // unconfirmed. At most once per RestartEvery, and at most MaxRestarts until a restart is seen to
+    // work (a text confirmed, or both connections back after a half-connection restart), so a phone
+    // that is truly broken gets a person instead of a restart loop. A phone that's off or off Wi-Fi
+    // has neither connection, which isn't a half-connection.
     public class CallCentreWatchdog
     {
         public const int CallsPort = 12331;
@@ -38,6 +39,7 @@ namespace SMS_Bridge.Services
         private DateTimeOffset? _halfConnectedSince;
         private DateTimeOffset? _lastRestartAt;
         private int _restartsSinceConfirmed;
+        private bool _lastRestartForHalfConnection;
         private bool _gaveUpLogged;
         // Read by phone-status without waiting for a check.
         private volatile PhoneNote? _note;
@@ -61,11 +63,7 @@ namespace SMS_Bridge.Services
 
         public static CallCentreWatchdog For(JustRemotePhoneSmsProvider provider, SmsQueueService queue, TimeProvider clock) =>
             new(PhoneConnections, () => queue.NotConfirming, () => queue.LastConfirmedAt,
-                async () =>
-                {
-                    provider.RestartCallCentre();
-                    await queue.CallCentreRestartedAsync();
-                },
+                () => queue.RestartCallCentreAsync(provider.RestartCallCentre),
                 clock);
 
         // Established connections to the phone's two ports, from any address, so a new DHCP lease
@@ -96,7 +94,10 @@ namespace SMS_Bridge.Services
                 var halfConnected = connections.Calls && !connections.Texts;
                 _halfConnectedSince = halfConnected ? _halfConnectedSince ?? now : null;
 
-                if (_lastRestartAt != null && _lastConfirmedAt() > _lastRestartAt)
+                var restartWorked = _lastRestartAt != null
+                    && (_lastConfirmedAt() > _lastRestartAt
+                        || (_lastRestartForHalfConnection && connections.Calls && connections.Texts && _notConfirming() == null));
+                if (restartWorked)
                 {
                     _restartsSinceConfirmed = 0;
                     _gaveUpLogged = false;
@@ -133,6 +134,7 @@ namespace SMS_Bridge.Services
                         eventType: "CallCentreRestart",
                         details: $"Restarting Call Centre: {trigger}");
                     _lastRestartAt = now;
+                    _lastRestartForHalfConnection = halfConnectedTooLong;
                     _restartsSinceConfirmed++;
                     _halfConnectedSince = null;
                     halfConnectedTooLong = false;

@@ -45,6 +45,8 @@ namespace SMS_Bridge.Services
         private volatile string? _notConfirming;
         private long _lastConfirmedTicks;
         private int _processing;
+        private int _reporting;
+        private bool _loadFailing;
 
         private sealed class Job
         {
@@ -52,6 +54,8 @@ namespace SMS_Bridge.Services
             public required DateTimeOffset ReceivedAt { get; init; }
             public required OutboundDelivery Delivery { get; set; }
             public PrincipleOutboundSmsMapRecord? Principle { get; init; }
+            public int ReportAttempts { get; set; }
+            public DateTimeOffset NextReportAt { get; set; } = DateTimeOffset.MinValue;
         }
 
         public SmsQueueService(
@@ -79,7 +83,11 @@ namespace SMS_Bridge.Services
             };
 
             _provider.SendOutcome += (smsBridgeId, status) => _ = HandleOutcomeAsync(smsBridgeId, status);
-            _processTimer = _clock.CreateTimer(_ => _ = ProcessAsync(), null, ProcessInterval, ProcessInterval);
+            _processTimer = _clock.CreateTimer(_ =>
+            {
+                _ = ProcessAsync();
+                _ = ReportAsync();
+            }, null, ProcessInterval, ProcessInterval);
 
             Logger.LogInfo(
                 provider: _providerType,
@@ -147,8 +155,8 @@ namespace SMS_Bridge.Services
             Principle = record
         };
 
-        // One pass of the queue: gives up on overdue texts, sends at most one text, and reports
-        // finished Principle texts. Runs on the timer; tests call it directly.
+        // One pass of the queue: gives up on overdue texts and sends at most one text. Runs on the
+        // timer; tests call it directly.
         public async Task ProcessAsync()
         {
             if (Interlocked.Exchange(ref _processing, 1) == 1)
@@ -164,14 +172,13 @@ namespace SMS_Bridge.Services
                 try
                 {
                     while (_incoming.TryDequeue(out var incoming)) _jobs.TryAdd(incoming.Id, incoming.Job);
-                    if (!_loaded) await LoadUnfinishedAsync();
+                    if (!_loaded) await TryLoadUnfinishedAsync();
                     await SendDueAsync();
                 }
                 finally
                 {
                     _lock.Release();
                 }
-                await ReportToPrincipleAsync();
             }
             catch (Exception ex)
             {
@@ -183,6 +190,42 @@ namespace SMS_Bridge.Services
             finally
             {
                 Volatile.Write(ref _processing, 0);
+            }
+        }
+
+        // An unreadable store mustn't stop texts already in memory going out; loading is retried each pass.
+        private async Task TryLoadUnfinishedAsync()
+        {
+            try
+            {
+                await LoadUnfinishedAsync();
+                if (_loadFailing)
+                {
+                    Logger.LogInfo(
+                        provider: _providerType,
+                        eventType: "StoreLoadRecovered",
+                        details: "Loaded the stored Principle texts");
+                    _loadFailing = false;
+                }
+                else
+                {
+                    // Loaded first time
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!_loadFailing)
+                {
+                    Logger.LogError(
+                        provider: _providerType,
+                        eventType: "StoreLoadFailed",
+                        details: $"Can't load stored Principle texts, retrying each pass; texts in memory still go out: {ex.Message}");
+                    _loadFailing = true;
+                }
+                else
+                {
+                    // Already logged
+                }
             }
         }
 
@@ -234,6 +277,18 @@ namespace SMS_Bridge.Services
                 }
             }
 
+            // With no text in flight or waiting there is nothing to test the phone with, so stop
+            // claiming it isn't confirming; the next text tests it within 30 seconds.
+            if (!_jobs.Values.Any(j => j.Delivery.Status is OutboundSmsStatus.Pending or OutboundSmsStatus.AwaitingResult))
+            {
+                _unconfirmedSince = null;
+                _lastTestAt = null;
+            }
+            else
+            {
+                // Texts still waiting
+            }
+
             var unconfirmedSince = UnconfirmedSince(now);
             var notConfirming = unconfirmedSince == null
                 ? null
@@ -274,10 +329,12 @@ namespace SMS_Bridge.Services
                 {
                     // Already logged this hold
                 }
-                foreach (var (smsBridgeId, job) in due.Where(d => d.Value.Delivery.LastError != blocked))
-                {
-                    await SaveAsync(smsBridgeId, job, job.Delivery with { LastError = blocked });
-                }
+                var changed = due.Where(d => d.Value.Delivery.LastError != blocked).Select(d => d.Value).ToList();
+                foreach (var job in changed) job.Delivery = job.Delivery with { LastError = blocked };
+                await _store.UpdateManyAsync(changed
+                    .Where(job => job.Principle != null)
+                    .Select(job => job.Principle! with { Delivery = job.Delivery })
+                    .ToList());
                 return;
             }
             else if (testSend)
@@ -344,13 +401,15 @@ namespace SMS_Bridge.Services
         public DateTimeOffset? LastConfirmedAt =>
             Interlocked.Read(ref _lastConfirmedTicks) is var ticks and not 0 ? new DateTimeOffset(ticks, TimeSpan.Zero) : null;
 
-        // A fresh Call Centre can't report on texts handed to the one it replaced: each is resent
-        // once, as after a timeout, and the phone starts with a clean slate.
-        public async Task CallCentreRestartedAsync()
+        // Restarts Call Centre while holding the queue lock, so no text is handed to the new one
+        // before the old one's texts are dealt with. A fresh Call Centre can't report on texts given
+        // to the one it replaced: each is resent once, as after a timeout.
+        public async Task RestartCallCentreAsync(Action restart)
         {
             await _lock.WaitAsync();
             try
             {
+                restart();
                 foreach (var (smsBridgeId, job) in _jobs.Where(j => j.Value.Delivery.Status == OutboundSmsStatus.AwaitingResult).ToList())
                 {
                     await TimedOutAsync(smsBridgeId, job);
@@ -378,19 +437,26 @@ namespace SMS_Bridge.Services
         {
             using var _ = _health.Track($"SMS send {smsBridgeId}");
             string? error;
+            int? statusCode = null;
             try
             {
                 var (result, _) = await _provider.SendSms(job.Request, smsBridgeId);
-                error = result is IStatusCodeHttpResult statusCodeResult && statusCodeResult.StatusCode != 200
-                    ? $"send failed with status {statusCodeResult.StatusCode}"
-                    : null;
+                statusCode = (result as IStatusCodeHttpResult)?.StatusCode;
+                error = statusCode is { } code && code != 200 ? $"send failed with status {code}" : null;
             }
             catch (Exception ex)
             {
                 error = ex.Message;
             }
 
-            if (error != null)
+            // A 4xx is the provider refusing this text (a 400 for a list of numbers, say), so
+            // retrying can't help; staff see it at once.
+            if (error != null && statusCode is >= 400 and < 500)
+            {
+                await FinishAsync(smsBridgeId, job, OutboundSmsStatus.Failed, error);
+                return;
+            }
+            else if (error != null)
             {
                 await SendFailedAsync(smsBridgeId, job, error);
                 return;
@@ -573,17 +639,49 @@ namespace SMS_Bridge.Services
             }
         }
 
-        // Runs outside the queue lock, so a slow Principle never holds up sending. A report that
-        // fails on a network or server error is retried next pass; one Principle rejects is not.
+        // Sets finished Principle texts' status in Principle. Runs on the timer apart from sending,
+        // so a slow or down Principle never holds up texts; tests call it directly.
+        public async Task ReportAsync()
+        {
+            if (Interlocked.Exchange(ref _reporting, 1) == 1)
+                return;
+            else
+            {
+                // Happy case handled below
+            }
+
+            try
+            {
+                await ReportToPrincipleAsync();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(
+                    provider: _providerType,
+                    eventType: "PrincipleStatusPassFailed",
+                    details: $"Principle status pass failed: {ex}");
+            }
+            finally
+            {
+                Volatile.Write(ref _reporting, 0);
+            }
+        }
+
+        // Principle answers these for a request that can never succeed; anything else (auth, rate
+        // limits, timeouts, server errors) is retried with the send retry delays.
+        private static readonly HashSet<int> FinalRejections = new() { 400, 404, 409, 422 };
+
         private async Task ReportToPrincipleAsync()
         {
             List<(SmsBridgeId Id, Job Job)> finished;
+            var now = _clock.GetUtcNow();
             await _lock.WaitAsync();
             try
             {
                 finished = _jobs
                     .Where(j => j.Value.Principle != null
-                             && (j.Value.Delivery.Status is OutboundSmsStatus.Sent or OutboundSmsStatus.Failed))
+                             && (j.Value.Delivery.Status is OutboundSmsStatus.Sent or OutboundSmsStatus.Failed)
+                             && j.Value.NextReportAt <= now)
                     .Select(j => (j.Key, j.Value))
                     .ToList();
             }
@@ -618,7 +716,7 @@ namespace SMS_Bridge.Services
                             details: $"Principle message {record.PrincipleMessageId} marked {status}");
                         done = true;
                     }
-                    catch (HttpRequestException ex) when (ex.StatusCode is { } code && (int)code >= 400 && (int)code < 500)
+                    catch (HttpRequestException ex) when (ex.StatusCode is { } code && FinalRejections.Contains((int)code))
                     {
                         Logger.LogError(
                             provider: _providerType,
@@ -629,11 +727,14 @@ namespace SMS_Bridge.Services
                     }
                     catch (Exception ex)
                     {
+                        job.ReportAttempts++;
+                        var delay = RetryDelays[Math.Min(job.ReportAttempts, RetryDelays.Length) - 1];
+                        job.NextReportAt = _clock.GetUtcNow() + delay;
                         Logger.LogWarning(
                             provider: _providerType,
                             eventType: "PrincipleStatusReportFailed",
                             SMSBridgeID: smsBridgeId,
-                            details: $"Couldn't mark Principle message {record.PrincipleMessageId} {status}, retrying: {ex.Message}");
+                            details: $"Couldn't mark Principle message {record.PrincipleMessageId} {status}, retrying in {delay.TotalMinutes:0} min: {ex.Message}");
                         done = false;
                     }
                 }
@@ -653,7 +754,7 @@ namespace SMS_Bridge.Services
                 }
                 else
                 {
-                    // Retried next pass
+                    // Retried at NextReportAt
                 }
             }
         }

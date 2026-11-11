@@ -95,6 +95,23 @@ public class CallCentreWatchdogTests
         Assert.Equal(3, _restarts);
     }
 
+    [Fact]
+    public async Task A_restart_that_brings_both_connections_back_doesnt_use_up_the_limit()
+    {
+        for (var episode = 0; episode < 3; episode++)
+        {
+            var start = TimeSpan.FromHours(episode * 5);
+            _connections = new(Calls: true, Texts: false);
+            await At(start);
+            await At(start + TimeSpan.FromMinutes(2));
+            _connections = new(Calls: true, Texts: true);
+            await At(start + TimeSpan.FromMinutes(3));
+        }
+
+        Assert.Equal(3, _restarts);
+        Assert.True(_watchdog.WithRestarts(Healthy).Up);
+    }
+
     private sealed class FakeClock : TimeProvider
     {
         public DateTimeOffset Start { get; private set; }
